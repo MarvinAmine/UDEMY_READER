@@ -1,0 +1,74 @@
+/* styles.css – popup styling */
+
+body {
+  margin: 0;
+  padding: 12px;
+  font-family: Arial, sans-serif;
+  background-color: #f9fafb;
+  color: #111827;
+  width: 340px;
+}
+
+#popupRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.popup-title {
+  font-size: 18px;
+  margin: 0 0 4px 0;
+}
+
+.popup-subtitle {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  color: #374151;
+}
+
+.popup-label {
+  display: block;
+  font-size: 12px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.popup-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  margin-bottom: 4px;
+}
+
+.popup-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #2563eb;
+  background-color: #3b82f6;
+  color: #ffffff;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.popup-btn:hover {
+  background-color: #2563eb;
+}
+
+.popup-save-status {
+  font-size: 11px;
+  color: #059669;
+}
+
+.popup-steps {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.popup-steps li {
+  margin-bottom: 4px;
+}

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Udemy AWS Quiz Reader & Study Helper",
+  "version": "0.3.0",
+  "description": "Inline reader for Udemy AWS certification questions, answers, and explanations.",
+  "permissions": ["scripting", "activeTab", "storage"],
+  "host_permissions": [
+    "https://www.udemy.com/*",
+    "https://texttospeech.googleapis.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.udemy.com/*"],
+      "js": ["content/udemyReader.js"],
+      "css": ["content/udemyReader.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

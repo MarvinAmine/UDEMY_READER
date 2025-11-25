@@ -1,0 +1,55 @@
+/* content/udemyReader.css */
+/* Tiny inline toolbar directly under the question on Udemy */
+
+#cz-tts-wrapper.cz-tts-wrapper {
+  border: 1px solid var(--color-gray-200, #e5e7eb);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-top: 8px;
+  background: #f9fafb;
+  font-size: 13px;
+}
+
+.cz-tts-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.cz-tts-title {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.cz-tts-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.cz-tts-btn:hover {
+  background: #f1f5f9;
+}
+
+.cz-tts-status {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+/* Highlighted words inside the Udemy question / answers */
+
+.cz-tts-word {
+  padding: 0 1px;
+}
+
+.cz-tts-word-current {
+  background: #fde68a !important;         /* strong yellow */
+  outline: 1px solid #f59e0b !important;  /* thin orange border */
+  border-radius: 2px;
+  padding: 0 1px;
+}

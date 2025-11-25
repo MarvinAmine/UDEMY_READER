@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Udemy Quiz Reader</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="popupRoot">
+    <h1 class="popup-title">Udemy Quiz Reader</h1>
+
+    <p class="popup-subtitle">
+      Read Udemy AWS certification questions and answers directly on the page.
+    </p>
+
+    <label class="popup-label" for="googleKey">
+      Google Cloud Text-to-Speech API key
+    </label>
+    <input id="googleKey" type="password" class="popup-input" placeholder="AIza...">
+    <button id="saveKey" class="popup-btn">Save key</button>
+    <div id="saveStatus" class="popup-save-status"></div>
+
+    <hr>
+
+    <ol class="popup-steps">
+      <li>Open a Udemy practice exam / quiz.</li>
+      <li>Under the question, look for the <strong>“Quiz Reader”</strong> bar.</li>
+      <li>Click <strong>“▶ Play Q + answers”</strong> to start reading.</li>
+      <li>Highlight will follow the text while it’s being read.</li>
+      <li>Use <strong>Pause / Resume / Stop</strong> as needed.</li>
+    </ol>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
