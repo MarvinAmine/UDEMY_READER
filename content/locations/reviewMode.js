@@ -1,12 +1,16 @@
 // content/locations/reviewMode.js
 // Attach Quiz Reader + Question Insight on the results page
 // (question review – many questions on one page)
+// Also used for the single-question "result" view in practice mode.
 
 (function () {
   if (!window.czFeatures) window.czFeatures = {};
 
+  // Support BOTH:
+  //  - Full exam review page: .result-pane--question-result-pane-wrapper--2bGiz
+  //  - Practice mode "validated" question: .question-result--question-result--LWiOB
   const REVIEW_WRAPPER_SELECTOR =
-    ".result-pane--question-result-pane-wrapper--2bGiz";
+    ".result-pane--question-result-pane-wrapper--2bGiz, .question-result--question-result--LWiOB";
 
   function log(...args) {
     console.log("[UdemyReader][ReviewMode]", ...args);
@@ -16,12 +20,38 @@
     return (text || "").replace(/\s+/g, " ").trim();
   }
 
+  function findPromptEl(block) {
+    if (!block) return null;
+    // Full review page uses the extra class, practice result only has #question-prompt
+    return (
+      block.querySelector(
+        ".result-pane--question-format--PBvdY#question-prompt"
+      ) || block.querySelector("#question-prompt")
+    );
+  }
+
+  function getQuestionIdReview(block) {
+    if (!block) return null;
+    // Try common patterns; if not present, null is fine (cache falls back to text key)
+    const fromAttr = block.getAttribute("data-question-id");
+    const fromDataset = block.dataset ? block.dataset.questionId : null;
+    return (fromAttr || fromDataset || "").trim() || null;
+  }
+
+  function getOptionLettersReview(block) {
+    if (!block) return [];
+    const answerBodies = block.querySelectorAll(
+      ".answer-result-pane--answer-body--cDGY6"
+    );
+    return Array.from(answerBodies).map((_, idx) =>
+      String.fromCharCode(65 + idx)
+    );
+  }
+
   function extractReviewQuestionText(block) {
     if (!block) return "";
 
-    const promptEl = block.querySelector(
-      ".result-pane--question-format--PBvdY#question-prompt"
-    );
+    const promptEl = findPromptEl(block);
     const questionText = promptEl
       ? normalizeWhitespace(promptEl.innerText || "")
       : "";
@@ -71,12 +101,12 @@
     if (!block) return [];
     const roots = [];
 
-    const prompt = block.querySelector(
-      ".result-pane--question-format--PBvdY#question-prompt"
-    );
+    const prompt = findPromptEl(block);
     if (prompt) roots.push(prompt);
 
-    const answers = block.querySelectorAll(".answer-result-pane--answer-body--cDGY6");
+    const answers = block.querySelectorAll(
+      ".answer-result-pane--answer-body--cDGY6"
+    );
     answers.forEach((el) => roots.push(el));
 
     const explanation = block.querySelector("#overall-explanation");
@@ -85,23 +115,11 @@
     return roots;
   }
 
-  function getReviewOptionLetters(block) {
-    if (!block) return [];
-    const answerBodies = block.querySelectorAll(
-      ".answer-result-pane--answer-body--cDGY6"
-    );
-    return Array.from(answerBodies).map((_, idx) =>
-      String.fromCharCode(65 + idx)
-    );
-  }
-
   function injectCardForBlock(block) {
     if (!block) return;
     if (block.dataset.czTtsInjected === "1") return;
 
-    const promptDiv = block.querySelector(
-      ".result-pane--question-format--PBvdY#question-prompt"
-    );
+    const promptDiv = findPromptEl(block);
     if (!promptDiv) return;
 
     const wrapper = document.createElement("div");
@@ -130,6 +148,7 @@
       </div>
     `;
 
+    // Insert the card right after the question prompt (works for both review + practice-result)
     promptDiv.insertAdjacentElement("afterend", wrapper);
 
     const quizFeature = window.czFeatures.quizReader;
@@ -152,8 +171,8 @@
     const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
     insightFeature.mount(analysisRoot, {
       getQuestionText: () => extractReviewQuestionText(block),
-      getQuestionId: () => null, // review DOM doesn't expose a stable question id
-      getOptionLetters: () => getReviewOptionLetters(block)
+      getQuestionId: () => getQuestionIdReview(block),
+      getOptionLetters: () => getOptionLettersReview(block)
     });
 
     block.dataset.czTtsInjected = "1";

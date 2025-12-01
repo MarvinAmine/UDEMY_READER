@@ -18,6 +18,38 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
       return;
     }
 
+    // Build a cache key:
+    //  - Prefer a stable questionId when provided by the content script
+    //  - Otherwise fall back to the full text
+    const questionId = msg.questionId ? String(msg.questionId) : null;
+    const cacheKey = questionId ? "qid:" + questionId : "text:" + text;
+
+    // 1) Try cache first (chrome.storage.local)
+    let cache = {};
+    if (chrome?.storage?.local) {
+      try {
+        const cacheRes = await new Promise((resolve) => {
+          chrome.storage.local.get(["czQuestionCache"], resolve);
+        });
+        cache = cacheRes.czQuestionCache || {};
+        const cachedEntry = cache[cacheKey];
+
+        if (cachedEntry && cachedEntry.analysis) {
+          // Immediate return from cache
+          sendResponse({
+            ok: true,
+            analysis: cachedEntry.analysis,
+            cached: true
+          });
+          return;
+        }
+      } catch (e) {
+        // Cache problems shouldn't break the feature; just log and continue.
+        console.warn("[UdemyReader][Background] Cache read error:", e);
+      }
+    }
+
+    // 2) No cache hit → call LLM
     const cfg = await new Promise((resolve) => {
       chrome.storage.sync.get(["czLlmApiKey", "czLlmModel"], resolve);
     });
@@ -34,29 +66,15 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
       "You are an AWS certification exam coach. " +
       "The user will send you a multiple-choice question (stem + options). " +
       "You must respond with a single JSON object only, no extra text. " +
-      "Fields:\n" +
-      "  - short_stem: array of 1-3 bullet strings summarizing the scenario.\n" +
-      "  - key_triggers: array of 2-4 short phrases from the stem that determine the correct answer.\n" +
-      "  - eliminate_rules: an OBJECT mapping option letters (e.g. 'A','B','C') to short explanations. " +
-      "    Include EVERY option letter that appears in the question (A, B, C, etc.), including correct ones. " +
-      "    For each option, say clearly whether it is correct or incorrect and why.\n" +
-      "  - topic_tags: array of 2-6 tags like ['VPC endpoints','NAT gateway','S3 access'].\n" +
-      "  - correct_choice: for SINGLE-answer questions, the single best option letter, for example 'A' or 'C'. " +
-      "    If the question expects multiple correct answers (e.g. it says 'Select TWO', 'Select TWO answers', " +
-      "    'Select all that apply', etc.), then set correct_choice to null and use correct_choices instead.\n" +
-      "  - correct_choices: for MULTI-ANSWER questions, an array of all correct option letters, e.g. ['B','E']. " +
-      "    For single-answer questions, you may omit this field or use an empty array.\n" +
-      "  - correct_reason: 1-3 short sentences explaining why the chosen option (or set of options) is correct.\n" +
-      "\n" +
-      "If the question clearly asks for multiple answers (for example, 'Select TWO', 'Select TWO options', " +
-      "'Select all that apply', 'Choose TWO'), treat it as a multi-answer question and use correct_choices. " +
-      "Otherwise, treat it as a single-answer question and use correct_choice.\n" +
-      "\n" +
-      "eliminate_rules MUST have one entry for every option letter that appears in the question. " +
-      "Do not omit any options. For correct options, explain that they are correct. " +
-      "For incorrect options, explain briefly why they are wrong or less suitable.\n" +
-      "\n" +
-      "Return ONLY JSON as described, no additional commentary or text outside the JSON.";
+      "Fields: " +
+      "short_stem (array of 1-3 bullet strings summarizing the scenario), " +
+      "key_triggers (array of 2-4 short phrases from the stem that determine the correct answer), " +
+      "eliminate_rules (either an object mapping option letters to reasons, or an array of {option, reason}), " +
+      "topic_tags (array of 2-6 tags like ['VPC endpoints','NAT gateway','S3 access']), " +
+      "correct_choice (the single best option letter, for example 'A' or 'C'), " +
+      "correct_reason (1-3 short sentences explaining why that option is correct). " +
+      "If you are unsure, choose the most defensible answer and state your reasoning in correct_reason. " +
+      "Focus on clarity and correctness. Temperature should be low. Do not include explanations outside the JSON.";
 
     const body = {
       model,
@@ -69,7 +87,7 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
             text
         }
       ],
-      temperature: 0,
+      temperature: 0.2,
       response_format: { type: "json_object" }
     };
 
@@ -106,6 +124,24 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
       return;
     }
 
+    // 3) Store in cache for future calls
+    if (chrome?.storage?.local) {
+      try {
+        const cacheRes2 = await new Promise((resolve) => {
+          chrome.storage.local.get(["czQuestionCache"], resolve);
+        });
+        const cache2 = cacheRes2.czQuestionCache || {};
+        cache2[cacheKey] = {
+          analysis: parsed,
+          createdAt: Date.now()
+        };
+        chrome.storage.local.set({ czQuestionCache: cache2 });
+      } catch (e) {
+        console.warn("[UdemyReader][Background] Cache write error:", e);
+      }
+    }
+
+    // 4) Return fresh analysis
     sendResponse({ ok: true, analysis: parsed });
   } catch (err) {
     sendResponse({

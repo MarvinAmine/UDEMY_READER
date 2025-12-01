@@ -80,47 +80,61 @@
 
     setBodyHtml(bodyEl, "<em>Analyzing question with AI…</em>");
 
-    chrome.runtime.sendMessage(
-      {
-        type: "CZ_ANALYZE_QUESTION",
-        text: trimmed,
-        questionId: questionId || null
-      },
-      (resp) => {
-        if (chrome.runtime.lastError) {
-          setBodyHtml(
-            bodyEl,
-            `<em>Extension error: ${escapeHtml(
-              chrome.runtime.lastError.message
-            )}</em>`
-          );
-          return;
-        }
+    // The call to chrome.runtime.sendMessage can throw if the extension
+    // context was invalidated (e.g. extension reloaded while this tab is open).
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "CZ_ANALYZE_QUESTION",
+          text: trimmed,
+          questionId: questionId || null
+        },
+        (resp) => {
+          if (chrome.runtime.lastError) {
+            const msg = chrome.runtime.lastError.message || "Unknown error";
+            setBodyHtml(
+              bodyEl,
+              `<em>Extension error: ${escapeHtml(
+                msg
+              )}</em><br><small>If you just reloaded the extension, reload the Udemy tab and try again.</small>`
+            );
+            return;
+          }
 
-        if (!resp || !resp.ok) {
-          const msg =
-            resp && resp.error
-              ? resp.error
-              : "Unknown error from analysis background.";
-          setBodyHtml(
-            bodyEl,
-            `<em>Analysis failed: ${escapeHtml(
-              String(msg)
-            )}</em><br><small>Check your LLM API key in the extension popup.</small>`
-          );
-          return;
-        }
+          if (!resp || !resp.ok) {
+            const msg =
+              resp && resp.error
+                ? resp.error
+                : "Unknown error from analysis background.";
+            setBodyHtml(
+              bodyEl,
+              `<em>Analysis failed: ${escapeHtml(
+                String(msg)
+              )}</em><br><small>Check your LLM API key in the extension popup.</small>`
+            );
+            return;
+          }
 
-        const analysis = resp.analysis || {};
-        const optionLetters = safeGetOptionLetters(config);
-        const html = renderAnalysis(analysis, optionLetters);
-        setBodyHtml(bodyEl, html);
+          const analysis = resp.analysis || {};
+          const optionLetters = safeGetOptionLetters(config);
+          const html = renderAnalysis(analysis, optionLetters);
+          setBodyHtml(bodyEl, html);
 
-        if (questionId) {
-          recordQuestionAnalysis(questionId, analysis);
+          if (questionId) {
+            recordQuestionAnalysis(questionId, analysis);
+          }
         }
-      }
-    );
+      );
+    } catch (err) {
+      // This is where "Extension context invalidated." is caught.
+      const msg = err && err.message ? err.message : String(err);
+      setBodyHtml(
+        bodyEl,
+        `<em>Extension error: ${escapeHtml(
+          msg
+        )}</em><br><small>Reload the Udemy page and try again.</small>`
+      );
+    }
   }
 
   /**
