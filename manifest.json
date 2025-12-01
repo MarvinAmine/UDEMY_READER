@@ -15,7 +15,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.udemy.com/*"],
-      "js": ["content/udemyReader.js"],
+      "js": [
+        "content/features/quizReaderFeature.js",
+        "content/features/questionInsightFeature.js",
+        "content/locations/practiceMode.js",
+        "content/locations/reviewMode.js"
+      ],
       "css": ["content/udemyReader.css"],
       "run_at": "document_idle"
     }

@@ -1,14 +1,25 @@
 /* content/udemyReader.css */
-/* Tiny inline toolbar directly under the question on Udemy */
 
-#cz-tts-wrapper.cz-tts-wrapper {
+/* Shared card for both practice + review */
+#cz-tts-wrapper.cz-tts-wrapper,
+.cz-tts-wrapper.cz-tts-review {
   border: 1px solid var(--color-gray-200, #e5e7eb);
-  border-radius: 4px;
-  padding: 6px 8px;
+  border-radius: 6px;
+  padding: 8px 10px;
   margin-top: 8px;
   background: #f9fafb;
   font-size: 13px;
+  display: block;
 }
+
+/* Extra “card” feel in review mode */
+.cz-tts-wrapper.cz-tts-review {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+/* Toolbar */
 
 .cz-tts-toolbar {
   display: flex;
@@ -45,8 +56,6 @@
 
 .cz-tts-word {
   padding: 0 1px;
-
-  /* keep Udemy’s original style, avoid bold jumps */
   font-weight: inherit;
   font-size: inherit;
   font-style: inherit;
@@ -62,7 +71,7 @@
   transition: background-color 0.1s ease-in-out;
 }
 
-/* Analysis panel under the toolbar */
+/* Analysis (Question Insight) */
 
 .cz-tts-analysis {
   margin-top: 6px;

@@ -1,5 +1,10 @@
+// File 2: /content/udemyReader.js
+
 // content/udemyReader.js
 // Udemy Quiz Reader & Exam Copilot – inline toolbar + Google TTS + word highlighting + LLM analysis
+// Now supports BOTH:
+//   - Quiz mode (1 Q per page)
+//   - Review mode (all questions on a single results page)
 
 (() => {
   if (window.__czUdemyReaderInjected) return;
@@ -22,6 +27,10 @@
     currentUtterance: null, // WebSpeech
     currentAudio: null,     // Google TTS HTMLAudioElement
 
+    // Which kind of question is active for highlighting
+    currentContext: "quiz",    // "quiz" | "review"
+    currentReviewRoot: null,   // HTMLElement of the review question wrapper
+
     highlight: {
       words: [],
       index: -1,
@@ -29,6 +38,7 @@
       intervalMs: 250
     },
 
+    // These point to the *currently active* toolbar (quiz or review)
     elements: {
       wrapper: null,
       status: null,
@@ -59,12 +69,26 @@
     });
   }
 
+  // Quiz mode: called whenever DOM changes
   function initOnceQuestionExists() {
     const questionForm = getQuestionForm();
     if (!questionForm) return;
 
     if (questionForm.querySelector("#cz-tts-wrapper")) return;
     injectReader(questionForm);
+  }
+
+  // Review mode: scan all result questions
+  function initReviewQuestionsOnce() {
+    const wrappers = document.querySelectorAll(
+      ".result-pane--question-result-pane-wrapper--2bGiz"
+    );
+    if (!wrappers.length) return;
+
+    wrappers.forEach((block) => {
+      if (block.dataset.czTtsInjected === "1") return;
+      injectReviewReader(block);
+    });
   }
 
   function getQuestionForm() {
@@ -77,6 +101,10 @@
     const form = getQuestionForm();
     return form?.dataset?.questionId || null;
   }
+
+  /********************************************************************
+   * QUIZ MODE: injection + toolbar
+   ********************************************************************/
 
   function injectReader(questionForm) {
     const wrapper = document.createElement("div");
@@ -130,16 +158,24 @@
     state.elements.status = wrapper.querySelector("#cz-tts-status");
     state.elements.analysisBody = wrapper.querySelector("#cz-tts-analysis-body");
 
-    hookToolbarEvents(wrapper);
+    hookQuizToolbarEvents(wrapper);
     initVoices();
     loadGoogleKey();
   }
 
-  function hookToolbarEvents(wrapper) {
+  function hookQuizToolbarEvents(wrapper) {
+    const statusEl = wrapper.querySelector("#cz-tts-status");
+    const analysisBodyEl = wrapper.querySelector("#cz-tts-analysis-body");
+
     wrapper.addEventListener("click", (evt) => {
       const btn = evt.target.closest("button.cz-tts-btn");
       if (!btn) return;
       const action = btn.dataset.action;
+
+      // Mark this toolbar as the active one
+      state.elements.wrapper = wrapper;
+      state.elements.status = statusEl;
+      state.elements.analysisBody = analysisBodyEl;
 
       if (action === "play-question") {
         const text = extractUdemyQuestionAndChoicesText();
@@ -149,14 +185,16 @@
           );
           return;
         }
-        speakText(text);
+        speakText(text); // quiz context by default
       } else if (action === "play-selection") {
         const text = extractSelectedText();
         if (!text) {
-          setStatus("No text selected. Select part of the question/explanation first.");
+          setStatus(
+            "No text selected. Select part of the question/explanation first."
+          );
           return;
         }
-        speakText(text);
+        speakText(text); // quiz context by default
       } else if (action === "pause") {
         pauseReading();
       } else if (action === "resume") {
@@ -182,15 +220,123 @@
   }
 
   /********************************************************************
+   * REVIEW MODE: injection + toolbar
+   ********************************************************************/
+
+  function injectReviewReader(questionWrapper) {
+    // Find the question prompt inside this review block
+    const promptDiv = questionWrapper.querySelector(
+      ".result-pane--question-format--PBvdY#question-prompt"
+    );
+    if (!promptDiv) return;
+
+    const wrapper = document.createElement("div");
+    // No id here (id is reserved for quiz mode), but we keep the same inner markup
+    wrapper.className = "cz-tts-wrapper cz-tts-review";
+    wrapper.innerHTML = `
+      <div class="cz-tts-toolbar">
+        <span class="cz-tts-title">Quiz Reader</span>
+        <button type="button" class="cz-tts-btn" data-action="play-question">
+          ▶ Play Q + answers
+        </button>
+        <button type="button" class="cz-tts-btn" data-action="play-selection">
+          ▶ Play selection
+        </button>
+        <button type="button" class="cz-tts-btn" data-action="pause">
+          ⏸ Pause
+        </button>
+        <button type="button" class="cz-tts-btn" data-action="resume">
+          ⏯ Resume
+        </button>
+        <button type="button" class="cz-tts-btn" data-action="stop">
+          ⏹ Stop
+        </button>
+      </div>
+      <div id="cz-tts-status" class="cz-tts-status">
+        Ready. Use “Play Q + answers” or select some text and use “Play selection”.
+      </div>
+
+      <div id="cz-tts-analysis" class="cz-tts-analysis">
+        <div class="cz-tts-analysis-header">
+          <span class="cz-tts-analysis-title">Question Insight</span>
+          <button type="button" class="cz-tts-btn" data-action="analyze-question">
+            🧠 Analyze question
+          </button>
+        </div>
+        <div id="cz-tts-analysis-body" class="cz-tts-analysis-body">
+          Click “Analyze question” to see a simplified stem, key triggers, and topic tags.
+        </div>
+      </div>
+    `;
+
+    promptDiv.insertAdjacentElement("afterend", wrapper);
+
+    hookReviewToolbarEvents(wrapper, questionWrapper);
+    questionWrapper.dataset.czTtsInjected = "1";
+    initVoices();
+    loadGoogleKey();
+  }
+
+  function hookReviewToolbarEvents(wrapper, questionWrapper) {
+    const statusEl = wrapper.querySelector("#cz-tts-status");
+    const analysisBodyEl = wrapper.querySelector("#cz-tts-analysis-body");
+
+    wrapper.addEventListener("click", (evt) => {
+      const btn = evt.target.closest("button.cz-tts-btn");
+      if (!btn) return;
+      const action = btn.dataset.action;
+
+      // Mark this review toolbar as the active one
+      state.elements.wrapper = wrapper;
+      state.elements.status = statusEl;
+      state.elements.analysisBody = analysisBodyEl;
+
+      if (action === "play-question") {
+        const text = extractReviewQuestionAndChoicesText(questionWrapper);
+        if (!text) {
+          setStatus(
+            "Could not detect question and answers in review block."
+          );
+          return;
+        }
+        speakText(text, { context: "review", reviewRoot: questionWrapper });
+      } else if (action === "play-selection") {
+        const text = extractSelectedText();
+        if (!text) {
+          setStatus(
+            "No text selected. Select part of the question/explanation first."
+          );
+          return;
+        }
+        // Highlight within this review question
+        speakText(text, { context: "review", reviewRoot: questionWrapper });
+      } else if (action === "pause") {
+        pauseReading();
+      } else if (action === "resume") {
+        resumeReading();
+      } else if (action === "stop") {
+        stopReading();
+      } else if (action === "analyze-question") {
+        analyzeReviewQuestion(questionWrapper);
+      }
+    });
+  }
+
+  /********************************************************************
    * TEXT EXTRACTION + WORD WRAPPING
    ********************************************************************/
 
+  // Quiz mode: question + choices
   function extractUdemyQuestionAndChoicesText() {
     const form = getQuestionForm();
     if (!form) return "";
 
-    const promptEl = form.querySelector(".mc-quiz-question--question-prompt--9cMw2");
-    const questionText = promptEl ? normalizeWhitespace(promptEl.innerText) : "";
+    const promptEl = form.querySelector(
+      ".mc-quiz-question--question-prompt--9cMw2"
+    );
+    const questionText = promptEl
+      ? normalizeWhitespace(promptEl.innerText)
+      : "";
 
     const answerEls = form.querySelectorAll(".mc-quiz-answer--answer-body--V-o8d");
     const answers = Array.from(answerEls).map((el, idx) => {
@@ -202,7 +348,62 @@
     const combined =
       questionText + (answers.length ? "\n\n" + answers.join("\n") : "");
 
-    log("Extracted text length:", combined.length);
+    log("Extracted quiz text length:", combined.length);
+    return combined;
+  }
+
+  // Review mode: question + all answers + explanation
+  function extractReviewQuestionAndChoicesText(questionWrapper) {
+    if (!questionWrapper) return "";
+
+    const promptEl = questionWrapper.querySelector(
+      ".result-pane--question-format--PBvdY#question-prompt"
+    );
+    const questionText = promptEl
+      ? normalizeWhitespace(promptEl.innerText || "")
+      : "";
+
+    const answerBodies = questionWrapper.querySelectorAll(
+      ".answer-result-pane--answer-body--cDGY6"
+    );
+
+    const answers = Array.from(answerBodies).map((bodyEl, idx) => {
+      const label = String.fromCharCode(65 + idx);
+      const text = normalizeWhitespace(bodyEl.innerText || "");
+
+      const pane = bodyEl.closest(
+        ".answer-result-pane--answer-correct--PLOEU, .answer-result-pane--answer-skipped--1NDPn"
+      );
+      const classes = pane ? pane.className : "";
+      const isCorrect =
+        classes.includes("answer-result-pane--answer-correct--PLOEU");
+
+      const userLabel = pane
+        ? pane.querySelector("[data-purpose='answer-result-header-user-label']")
+        : null;
+
+      let meta = "";
+      if (isCorrect) meta += " (correct)";
+      if (userLabel) meta += " (your selection)";
+      return `${label}. ${text}${meta}`;
+    });
+
+    let explanationText = "";
+    const overallExplanation = questionWrapper.querySelector(
+      "#overall-explanation"
+    );
+    if (overallExplanation) {
+      explanationText =
+        "\n\nExplanation:\n" +
+        normalizeWhitespace(overallExplanation.innerText || "");
+    }
+
+    const combined =
+      questionText +
+      (answers.length ? "\n\n" + answers.join("\n") : "") +
+      explanationText;
+
+    log("Extracted review text length:", combined.length);
     return combined;
   }
 
@@ -216,8 +417,9 @@
     return text.replace(/\s+/g, " ").trim();
   }
 
-  // Wrap all text nodes in question + answers into <span class="cz-tts-word">
-  function ensureWordWrapping() {
+  /************* WORD WRAPPING – QUIZ MODE ***********************************/
+
+  function ensureWordWrappingQuiz() {
     const form = getQuestionForm();
     if (!form) return;
 
@@ -236,6 +438,92 @@
       root.dataset.czTtsWrapped = "1";
     });
   }
+
+  function prepareHighlightWordsQuiz() {
+    ensureWordWrappingQuiz();
+
+    const words = document.querySelectorAll(
+      "#question-prompt .cz-tts-word, .mc-quiz-answer--answer-body--V-o8d .cz-tts-word"
+    );
+
+    state.highlight.words = Array.from(words);
+    state.highlight.index = -1;
+
+    const combinedLength = state.currentText.length || 1;
+    const wordCount = Math.max(state.highlight.words.length, 1);
+
+    const estimatedSeconds = combinedLength / 13; // ~13 chars/s
+    const intervalMs = (estimatedSeconds * 1000) / wordCount;
+
+    state.highlight.intervalMs = Math.min(
+      600,
+      Math.max(120, Math.round(intervalMs))
+    );
+
+    log(
+      "Prepared highlighted words (quiz):",
+      wordCount,
+      "combined length:",
+      combinedLength
+    );
+  }
+
+  /************* WORD WRAPPING – REVIEW MODE *********************************/
+
+  function ensureWordWrappingReview(questionWrapper) {
+    const targets = [];
+
+    const prompt = questionWrapper.querySelector(
+      ".result-pane--question-format--PBvdY#question-prompt"
+    );
+    if (prompt && !prompt.dataset.czTtsWrapped) targets.push(prompt);
+
+    const answers = questionWrapper.querySelectorAll(
+      ".answer-result-pane--answer-body--cDGY6"
+    );
+    answers.forEach((el) => {
+      if (!el.dataset.czTtsWrapped) targets.push(el);
+    });
+
+    const explanation = questionWrapper.querySelector("#overall-explanation");
+    if (explanation && !explanation.dataset.czTtsWrapped) {
+      targets.push(explanation);
+    }
+
+    targets.forEach((root) => {
+      wrapTextNodes(root);
+      root.dataset.czTtsWrapped = "1";
+    });
+  }
+
+  function prepareHighlightWordsReview(questionWrapper) {
+    ensureWordWrappingReview(questionWrapper);
+
+    const words = questionWrapper.querySelectorAll(".cz-tts-word");
+
+    state.highlight.words = Array.from(words);
+    state.highlight.index = -1;
+
+    const combinedLength = state.currentText.length || 1;
+    const wordCount = Math.max(state.highlight.words.length, 1);
+
+    const estimatedSeconds = combinedLength / 13;
+    const intervalMs = (estimatedSeconds * 1000) / wordCount;
+
+    state.highlight.intervalMs = Math.min(
+      600,
+      Math.max(120, Math.round(intervalMs))
+    );
+
+    log(
+      "Prepared highlighted words (review):",
+      wordCount,
+      "combined length:",
+      combinedLength
+    );
+  }
+
+  /************* SHARED WRAPPING *********************************************/
 
   function wrapTextNodes(root) {
     const walker = document.createTreeWalker(
@@ -279,33 +567,8 @@
   }
 
   /********************************************************************
-   * HIGHLIGHT MANAGEMENT
+   * HIGHLIGHT MANAGEMENT (shared)
    ********************************************************************/
-
-  function prepareHighlightWords() {
-    ensureWordWrapping();
-
-    const words = document.querySelectorAll(
-      "#question-prompt .cz-tts-word, .mc-quiz-answer--answer-body--V-o8d .cz-tts-word"
-    );
-
-    state.highlight.words = Array.from(words);
-    state.highlight.index = -1;
-
-    const combinedLength = state.currentText.length || 1;
-    const wordCount = Math.max(state.highlight.words.length, 1);
-
-    // crude estimate: ~13 chars/s at rate 1.0
-    const estimatedSeconds = combinedLength / 13;
-    const intervalMs = (estimatedSeconds * 1000) / wordCount;
-
-    state.highlight.intervalMs = Math.min(
-      600,
-      Math.max(120, Math.round(intervalMs))
-    );
-
-    log("Prepared highlighted words:", wordCount, "combined length:", combinedLength);
-  }
 
   function clearHighlight() {
     state.highlight.words.forEach((w) =>
@@ -333,7 +596,6 @@
     state.highlight.timerId = setInterval(() => {
       if (!state.isPlaying || state.isPaused) return;
 
-      // remove previous
       if (idx >= 0 && idx < wordCount) {
         state.highlight.words[idx].classList.remove("cz-tts-word-current");
       }
@@ -404,7 +666,8 @@
    * HIGH-LEVEL READ / PAUSE / RESUME / STOP
    ********************************************************************/
 
-  function speakText(text) {
+  // options: { context: "quiz" | "review", reviewRoot?: HTMLElement }
+  function speakText(text, options = {}) {
     const cleaned = normalizeWhitespace(text);
     if (!cleaned) {
       setStatus("Nothing to read.");
@@ -412,6 +675,9 @@
     }
 
     state.currentText = cleaned;
+    state.currentContext = options.context || "quiz";
+    state.currentReviewRoot = options.reviewRoot || null;
+
     chooseInitialMode();
 
     if (state.ttsMode === "none") {
@@ -420,8 +686,12 @@
 
     stopReading(true); // keep mode
 
-    // Prepare highlight before starting TTS
-    prepareHighlightWords();
+    if (state.currentContext === "review" && state.currentReviewRoot) {
+      prepareHighlightWordsReview(state.currentReviewRoot);
+    } else {
+      // default to quiz behaviour
+      prepareHighlightWordsQuiz();
+    }
 
     if (state.ttsMode === "webspeech") {
       speakWithWebSpeech(cleaned);
@@ -507,7 +777,9 @@
       return;
     }
     if (!state.hasWebVoices) {
-      setStatus("No system voices available for text-to-speech (Web Speech API).");
+      setStatus(
+        "No system voices available for text-to-speech (Web Speech API)."
+      );
       return;
     }
 
@@ -532,7 +804,9 @@
       state.isPlaying = false;
       state.isPaused = false;
       stopHighlightTimer(true);
-      setStatus("Speech error (Web Speech). Falling back to Google TTS if available.");
+      setStatus(
+        "Speech error (Web Speech). Falling back to Google TTS if available."
+      );
 
       if (state.googleApiKey) {
         state.ttsMode = "google";
@@ -549,7 +823,9 @@
 
   async function speakWithGoogleTTS(text) {
     if (!state.googleApiKey) {
-      setStatus("Google TTS not configured. Please set your API key in the popup.");
+      setStatus(
+        "Google TTS not configured. Please set your API key in the popup."
+      );
       return;
     }
 
@@ -618,7 +894,9 @@
         state.isPlaying = false;
         state.isPaused = false;
         stopHighlightTimer(true);
-        setStatus("Audio playback error: " + (err?.message || "Unknown error"));
+        setStatus(
+          "Audio playback error: " + (err?.message || "Unknown error")
+        );
       };
 
       startHighlightTimer(false);
@@ -637,13 +915,27 @@
    * LLM ANALYSIS (Exam Copilot)
    ********************************************************************/
 
+  // Quiz mode
   function analyzeCurrentQuestion() {
     const text = extractUdemyQuestionAndChoicesText();
     const qid = getQuestionId();
 
+    analyzeQuestionGeneric(text, qid);
+  }
+
+  // Review mode
+  function analyzeReviewQuestion(questionWrapper) {
+    const text = extractReviewQuestionAndChoicesText(questionWrapper);
+    // Review DOM doesn't always expose a question id; null is fine
+    const qid = null;
+
+    analyzeQuestionGeneric(text, qid);
+  }
+
+  function analyzeQuestionGeneric(text, questionId) {
     if (!text) {
       setAnalysisHtml(
-        `<em>Could not detect question text. Are you on a Udemy quiz question?</em>`
+        `<em>Could not detect question text. Are you on a Udemy exam question?</em>`
       );
       return;
     }
@@ -659,7 +951,7 @@
       {
         type: "CZ_ANALYZE_QUESTION",
         text,
-        questionId: qid || null
+        questionId: questionId || null
       },
       (resp) => {
         if (chrome.runtime.lastError) {
@@ -674,15 +966,17 @@
               ? resp.error
               : "Unknown error from analysis background.";
           setAnalysisHtml(
-            `<em>Analysis failed: ${escapeHtml(String(msg))}</em><br><small>Check your LLM API key in the extension popup.</small>`
+            `<em>Analysis failed: ${escapeHtml(String(
+              msg
+            ))}</em><br><small>Check your LLM API key in the extension popup.</small>`
           );
           return;
         }
 
         const analysis = resp.analysis || {};
         renderAnalysis(analysis);
-        if (qid) {
-          recordQuestionAnalysis(qid, analysis);
+        if (questionId) {
+          recordQuestionAnalysis(questionId, analysis);
         }
       }
     );
@@ -813,6 +1107,7 @@
     const target = document.querySelector(".quiz-page-content") || document.body;
     const obs = new MutationObserver(() => {
       initOnceQuestionExists();
+      initReviewQuestionsOnce();
     });
 
     obs.observe(target, { childList: true, subtree: true });
@@ -820,5 +1115,6 @@
 
   // Initial run
   initOnceQuestionExists();
+  initReviewQuestionsOnce();
   setupObserver();
 })();
