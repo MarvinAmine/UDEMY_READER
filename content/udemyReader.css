@@ -45,11 +45,62 @@
 
 .cz-tts-word {
   padding: 0 1px;
+
+  /* keep Udemy’s original style, avoid bold jumps */
+  font-weight: inherit;
+  font-size: inherit;
+  font-style: inherit;
+  color: inherit;
+  letter-spacing: inherit;
 }
 
 .cz-tts-word-current {
-  background: #fde68a !important;         /* strong yellow */
-  outline: 1px solid #f59e0b !important;  /* thin orange border */
+  background: #fff3bf !important;
+  box-shadow: 0 0 0 1px #f59e0b !important;
   border-radius: 2px;
   padding: 0 1px;
+  transition: background-color 0.1s ease-in-out;
+}
+
+/* Analysis panel under the toolbar */
+
+.cz-tts-analysis {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 12px;
+  color: #374151;
+}
+
+.cz-tts-analysis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cz-tts-analysis-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.cz-tts-analysis-body {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cz-tts-analysis-body ul {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+}
+
+.cz-tts-analysis-body li {
+  margin-bottom: 2px;
+}
+
+.cz-tts-analysis-tags {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #6b7280;
 }

@@ -1,27 +1,88 @@
-// popup.js – store / load Google TTS API key
+// popup.js – manage Google TTS key, LLM config, and weak-topic summary
 
 document.addEventListener("DOMContentLoaded", () => {
-  const keyInput = document.getElementById("googleKey");
-  const saveBtn = document.getElementById("saveKey");
-  const statusEl = document.getElementById("saveStatus");
+  const googleKeyInput = document.getElementById("googleKey");
+  const saveTtsBtn = document.getElementById("saveKey");
+  const saveStatusEl = document.getElementById("saveStatus");
+
+  const llmKeyInput = document.getElementById("llmKey");
+  const llmModelInput = document.getElementById("llmModel");
+  const saveLlmBtn = document.getElementById("saveLlm");
+  const llmSaveStatusEl = document.getElementById("llmSaveStatus");
+
+  const weakTopicsList = document.getElementById("weakTopicsList");
 
   if (!chrome?.storage?.sync) {
-    statusEl.textContent = "chrome.storage.sync not available.";
+    saveStatusEl.textContent = "chrome.storage.sync not available.";
+    llmSaveStatusEl.textContent = "chrome.storage.sync not available.";
     return;
   }
 
-  // Load existing key
-  chrome.storage.sync.get(["czGoogleTtsKey"], (res) => {
-    keyInput.value = res.czGoogleTtsKey || "";
-  });
+  // Load existing keys/configs
+  chrome.storage.sync.get(
+    ["czGoogleTtsKey", "czLlmApiKey", "czLlmModel"],
+    (res) => {
+      googleKeyInput.value = res.czGoogleTtsKey || "";
+      llmKeyInput.value = res.czLlmApiKey || "";
+      llmModelInput.value = res.czLlmModel || "gpt-4o-mini";
+    }
+  );
 
-  saveBtn.addEventListener("click", () => {
-    const key = keyInput.value.trim();
+  saveTtsBtn.addEventListener("click", () => {
+    const key = googleKeyInput.value.trim();
     chrome.storage.sync.set({ czGoogleTtsKey: key }, () => {
-      statusEl.textContent = key ? "Key saved." : "Key cleared.";
-      setTimeout(() => {
-        statusEl.textContent = "";
-      }, 1500);
+      saveStatusEl.textContent = key ? "TTS key saved." : "TTS key cleared.";
+      setTimeout(() => (saveStatusEl.textContent = ""), 1500);
     });
   });
+
+  saveLlmBtn.addEventListener("click", () => {
+    const key = llmKeyInput.value.trim();
+    const model = llmModelInput.value.trim() || "gpt-4o-mini";
+    chrome.storage.sync.set(
+      { czLlmApiKey: key, czLlmModel: model },
+      () => {
+        llmSaveStatusEl.textContent = key
+          ? "LLM config saved."
+          : "LLM key cleared.";
+        setTimeout(() => (llmSaveStatusEl.textContent = ""), 1500);
+      }
+    );
+  });
+
+  // Load weak-topic stats from local storage
+  if (chrome?.storage?.local) {
+    chrome.storage.local.get(["czQuestionStats"], (res) => {
+      const stats = res.czQuestionStats || {};
+      const tagCounts = {};
+
+      Object.values(stats).forEach((entry) => {
+        if (!entry || !entry.tags) return;
+        Object.entries(entry.tags).forEach(([tag, count]) => {
+          tagCounts[tag] = (tagCounts[tag] || 0) + (count || 0);
+        });
+      });
+
+      const sorted = Object.entries(tagCounts).sort(
+        (a, b) => b[1] - a[1]
+      );
+
+      weakTopicsList.innerHTML = "";
+
+      if (!sorted.length) {
+        weakTopicsList.innerHTML =
+          '<li class="popup-topics-empty">No analyzed questions yet.</li>';
+        return;
+      }
+
+      sorted.slice(0, 10).forEach(([tag, count]) => {
+        const li = document.createElement("li");
+        li.textContent = `${tag} – ${count}`;
+        weakTopicsList.appendChild(li);
+      });
+    });
+  } else {
+    weakTopicsList.innerHTML =
+      '<li class="popup-topics-empty">chrome.storage.local not available.</li>';
+  }
 });

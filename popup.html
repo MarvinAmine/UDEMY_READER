@@ -10,25 +10,45 @@
     <h1 class="popup-title">Udemy Quiz Reader</h1>
 
     <p class="popup-subtitle">
-      Read Udemy AWS certification questions and answers directly on the page.
+      Read Udemy AWS certification questions and get AI insights directly on the page.
     </p>
 
-    <label class="popup-label" for="googleKey">
-      Google Cloud Text-to-Speech API key
-    </label>
-    <input id="googleKey" type="password" class="popup-input" placeholder="AIza...">
-    <button id="saveKey" class="popup-btn">Save key</button>
-    <div id="saveStatus" class="popup-save-status"></div>
+    <div class="popup-section">
+      <h2 class="popup-section-title">Google TTS</h2>
+      <label class="popup-label" for="googleKey">
+        Google Cloud Text-to-Speech API key
+      </label>
+      <input id="googleKey" type="password" class="popup-input" placeholder="AIza...">
+      <button id="saveKey" class="popup-btn">Save TTS key</button>
+      <div id="saveStatus" class="popup-status"></div>
+    </div>
 
-    <hr>
+    <div class="popup-section">
+      <h2 class="popup-section-title">LLM (Exam Copilot)</h2>
+      <label class="popup-label" for="llmKey">
+        LLM API key (OpenAI compatible)
+      </label>
+      <input id="llmKey" type="password" class="popup-input" placeholder="sk-...">
+      <label class="popup-label" for="llmModel">
+        Model name
+      </label>
+      <input
+        id="llmModel"
+        type="text"
+        class="popup-input"
+        placeholder="gpt-4o-mini"
+      >
+      <button id="saveLlm" class="popup-btn">Save LLM config</button>
+      <div id="llmSaveStatus" class="popup-status"></div>
+    </div>
 
-    <ol class="popup-steps">
-      <li>Open a Udemy practice exam / quiz.</li>
-      <li>Under the question, look for the <strong>“Quiz Reader”</strong> bar.</li>
-      <li>Click <strong>“▶ Play Q + answers”</strong> to start reading.</li>
-      <li>Highlight will follow the text while it’s being read.</li>
-      <li>Use <strong>Pause / Resume / Stop</strong> as needed.</li>
-    </ol>
+    <div class="popup-section">
+      <h2 class="popup-section-title">Weak topics (local)</h2>
+      <ul id="weakTopicsList" class="popup-topics-list"></ul>
+      <p class="popup-note">
+        These tags are inferred from analyzed questions. Higher counts mean you see those topics more often.
+      </p>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>

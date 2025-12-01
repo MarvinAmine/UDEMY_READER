@@ -1,5 +1,5 @@
 // content/udemyReader.js
-// Udemy Quiz Reader – inline toolbar + Google TTS + word highlighting
+// Udemy Quiz Reader & Exam Copilot – inline toolbar + Google TTS + word highlighting + LLM analysis
 
 (() => {
   if (window.__czUdemyReaderInjected) return;
@@ -31,7 +31,8 @@
 
     elements: {
       wrapper: null,
-      status: null
+      status: null,
+      analysisBody: null
     }
   };
 
@@ -43,8 +44,8 @@
    * INIT
    ********************************************************************/
 
-  // initial best-effort load of the key (popup will keep storage up to date)
-  function initialLoadGoogleKey() {
+  // Load Google API key from storage (set in popup)
+  function loadGoogleKey() {
     if (!chrome?.storage?.sync) {
       log("chrome.storage.sync not available");
       return;
@@ -52,7 +53,7 @@
     chrome.storage.sync.get(["czGoogleTtsKey"], (res) => {
       state.googleApiKey = (res.czGoogleTtsKey || "").trim();
       log(
-        "Initial Google TTS key from storage:",
+        "Loaded Google TTS key from storage:",
         state.googleApiKey ? "present" : "empty"
       );
     });
@@ -70,6 +71,11 @@
     return document.querySelector(
       'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]'
     );
+  }
+
+  function getQuestionId() {
+    const form = getQuestionForm();
+    return form?.dataset?.questionId || null;
   }
 
   function injectReader(questionForm) {
@@ -99,6 +105,18 @@
       <div id="cz-tts-status" class="cz-tts-status">
         Ready. Use “Play Q + answers” or select some text and use “Play selection”.
       </div>
+
+      <div id="cz-tts-analysis" class="cz-tts-analysis">
+        <div class="cz-tts-analysis-header">
+          <span class="cz-tts-analysis-title">Question Insight</span>
+          <button type="button" class="cz-tts-btn" data-action="analyze-question">
+            🧠 Analyze question
+          </button>
+        </div>
+        <div id="cz-tts-analysis-body" class="cz-tts-analysis-body">
+          Click “Analyze question” to see a simplified stem, key triggers, and topic tags.
+        </div>
+      </div>
     `;
 
     const promptDiv = questionForm.querySelector("#question-prompt");
@@ -110,10 +128,11 @@
 
     state.elements.wrapper = wrapper;
     state.elements.status = wrapper.querySelector("#cz-tts-status");
+    state.elements.analysisBody = wrapper.querySelector("#cz-tts-analysis-body");
 
     hookToolbarEvents(wrapper);
     initVoices();
-    initialLoadGoogleKey();
+    loadGoogleKey();
   }
 
   function hookToolbarEvents(wrapper) {
@@ -144,6 +163,8 @@
         resumeReading();
       } else if (action === "stop") {
         stopReading();
+      } else if (action === "analyze-question") {
+        analyzeCurrentQuestion();
       }
     });
   }
@@ -151,6 +172,12 @@
   function setStatus(msg) {
     if (state.elements.status) {
       state.elements.status.textContent = msg;
+    }
+  }
+
+  function setAnalysisHtml(html) {
+    if (state.elements.analysisBody) {
+      state.elements.analysisBody.innerHTML = html;
     }
   }
 
@@ -277,12 +304,7 @@
       Math.max(120, Math.round(intervalMs))
     );
 
-    log(
-      "Prepared highlight words:",
-      wordCount,
-      "combined length:",
-      combinedLength
-    );
+    log("Prepared highlighted words:", wordCount, "combined length:", combinedLength);
   }
 
   function clearHighlight() {
@@ -308,15 +330,10 @@
     const wordCount = state.highlight.words.length;
     let idx = fromCurrent ? state.highlight.index : -1;
 
-    log(
-      "startHighlightTimer:",
-      "wordCount=" + wordCount,
-      "intervalMs=" + state.highlight.intervalMs
-    );
-
     state.highlight.timerId = setInterval(() => {
       if (!state.isPlaying || state.isPaused) return;
 
+      // remove previous
       if (idx >= 0 && idx < wordCount) {
         state.highlight.words[idx].classList.remove("cz-tts-word-current");
       }
@@ -383,22 +400,6 @@
     }
   }
 
-  // Make sure we always have the latest key *before* choosing the mode
-  function refreshGoogleKeyThen(callback) {
-    if (!chrome?.storage?.sync) {
-      callback();
-      return;
-    }
-    chrome.storage.sync.get(["czGoogleTtsKey"], (res) => {
-      state.googleApiKey = (res.czGoogleTtsKey || "").trim();
-      log(
-        "Refreshed Google TTS key from storage:",
-        state.googleApiKey ? "present" : "empty"
-      );
-      callback();
-    });
-  }
-
   /********************************************************************
    * HIGH-LEVEL READ / PAUSE / RESUME / STOP
    ********************************************************************/
@@ -411,27 +412,24 @@
     }
 
     state.currentText = cleaned;
+    chooseInitialMode();
 
-    // Re-load key before each read, then decide mode
-    refreshGoogleKeyThen(() => {
-      state.ttsMode = "auto"; // re-evaluate mode with latest info
-      chooseInitialMode();
+    if (state.ttsMode === "none") {
+      return;
+    }
 
-      if (state.ttsMode === "none") {
-        return;
-      }
+    stopReading(true); // keep mode
 
-      stopReading(true); // keep mode
-      prepareHighlightWords();
+    // Prepare highlight before starting TTS
+    prepareHighlightWords();
 
-      if (state.ttsMode === "webspeech") {
-        speakWithWebSpeech(cleaned);
-      } else if (state.ttsMode === "google") {
-        speakWithGoogleTTS(cleaned);
-      } else {
-        setStatus("No TTS mode available.");
-      }
-    });
+    if (state.ttsMode === "webspeech") {
+      speakWithWebSpeech(cleaned);
+    } else if (state.ttsMode === "google") {
+      speakWithGoogleTTS(cleaned);
+    } else {
+      setStatus("No TTS mode available.");
+    }
   }
 
   function pauseReading() {
@@ -467,7 +465,7 @@
           setStatus("Resuming (Google TTS)...");
         })
         .catch((err) => {
-          log("Resume play error:", err);
+          log("Resume play error", err);
           setStatus("Could not resume audio: " + err.message);
         });
     }
@@ -633,6 +631,178 @@
       stopHighlightTimer(true);
       setStatus("Google TTS error: " + err.message);
     }
+  }
+
+  /********************************************************************
+   * LLM ANALYSIS (Exam Copilot)
+   ********************************************************************/
+
+  function analyzeCurrentQuestion() {
+    const text = extractUdemyQuestionAndChoicesText();
+    const qid = getQuestionId();
+
+    if (!text) {
+      setAnalysisHtml(
+        `<em>Could not detect question text. Are you on a Udemy quiz question?</em>`
+      );
+      return;
+    }
+
+    if (!chrome?.runtime?.sendMessage) {
+      setAnalysisHtml(`<em>Chrome runtime messaging not available.</em>`);
+      return;
+    }
+
+    setAnalysisHtml(`<em>Analyzing question with AI…</em>`);
+
+    chrome.runtime.sendMessage(
+      {
+        type: "CZ_ANALYZE_QUESTION",
+        text,
+        questionId: qid || null
+      },
+      (resp) => {
+        if (chrome.runtime.lastError) {
+          setAnalysisHtml(
+            `<em>Extension error: ${chrome.runtime.lastError.message}</em>`
+          );
+          return;
+        }
+        if (!resp || !resp.ok) {
+          const msg =
+            resp && resp.error
+              ? resp.error
+              : "Unknown error from analysis background.";
+          setAnalysisHtml(
+            `<em>Analysis failed: ${escapeHtml(String(msg))}</em><br><small>Check your LLM API key in the extension popup.</small>`
+          );
+          return;
+        }
+
+        const analysis = resp.analysis || {};
+        renderAnalysis(analysis);
+        if (qid) {
+          recordQuestionAnalysis(qid, analysis);
+        }
+      }
+    );
+  }
+
+  function renderAnalysis(analysis) {
+    const shortStem = analysis.short_stem;
+    const keyTriggers = Array.isArray(analysis.key_triggers)
+      ? analysis.key_triggers
+      : [];
+    const topicTags = Array.isArray(analysis.topic_tags)
+      ? analysis.topic_tags
+      : [];
+    const eliminateRules = analysis.eliminate_rules || {};
+
+    let html = "";
+
+    // Short stem
+    if (Array.isArray(shortStem)) {
+      html += `<strong>Short version:</strong><ul>`;
+      shortStem.forEach((line) => {
+        html += `<li>${escapeHtml(String(line))}</li>`;
+      });
+      html += `</ul>`;
+    } else if (typeof shortStem === "string" && shortStem.trim()) {
+      html += `<strong>Short version:</strong><ul>`;
+      html += `<li>${escapeHtml(shortStem.trim())}</li>`;
+      html += `</ul>`;
+    }
+
+    // Key triggers
+    if (keyTriggers.length) {
+      html += `<strong>Key triggers:</strong><ul>`;
+      keyTriggers.forEach((t) => {
+        html += `<li>${escapeHtml(String(t))}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    // Eliminate rules
+    const rulesArray = [];
+    if (Array.isArray(eliminateRules)) {
+      eliminateRules.forEach((item) => {
+        if (!item) return;
+        const opt = item.option || item.choice || "";
+        const reason = item.reason || item.explanation || "";
+        if (opt && reason) {
+          rulesArray.push({ opt, reason });
+        }
+      });
+    } else if (typeof eliminateRules === "object" && eliminateRules !== null) {
+      Object.entries(eliminateRules).forEach(([k, v]) => {
+        if (!v) return;
+        rulesArray.push({
+          opt: k,
+          reason: String(v)
+        });
+      });
+    }
+
+    if (rulesArray.length) {
+      html += `<strong>Why other options are wrong:</strong><ul>`;
+      rulesArray.forEach(({ opt, reason }) => {
+        html += `<li><strong>${escapeHtml(String(opt))}:</strong> ${escapeHtml(
+          String(reason)
+        )}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (topicTags.length) {
+      html += `<div class="cz-tts-analysis-tags">Tags: ${topicTags
+        .map((t) => escapeHtml(String(t)))
+        .join(", ")}</div>`;
+    }
+
+    if (!html) {
+      html =
+        `<em>Analysis did not return structured data. Check your prompt or try again.</em>`;
+    }
+
+    setAnalysisHtml(html);
+  }
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // Save tags per question locally for weak-topic stats
+  function recordQuestionAnalysis(questionId, analysis) {
+    if (!chrome?.storage?.local || !questionId) return;
+
+    const tags = Array.isArray(analysis.topic_tags) ? analysis.topic_tags : [];
+
+    chrome.storage.local.get(["czQuestionStats"], (res) => {
+      const stats = res.czQuestionStats || {};
+      const key = String(questionId);
+
+      const existing = stats[key] || {
+        attempts: 0,
+        wrong: 0,
+        tags: {},
+        lastSeen: 0
+      };
+
+      existing.attempts = (existing.attempts || 0) + 1;
+      existing.lastSeen = Date.now();
+
+      tags.forEach((t) => {
+        const tag = String(t || "").trim();
+        if (!tag) return;
+        existing.tags[tag] = (existing.tags[tag] || 0) + 1;
+      });
+
+      stats[key] = existing;
+      chrome.storage.local.set({ czQuestionStats: stats });
+    });
   }
 
   /********************************************************************

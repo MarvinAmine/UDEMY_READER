@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Udemy AWS Quiz Reader & Study Helper",
+  "name": "Udemy AWS Quiz Reader & Exam Copilot",
   "version": "0.3.0",
-  "description": "Inline reader for Udemy AWS certification questions, answers, and explanations.",
+  "description": "Inline reader and AI copilot for Udemy AWS certification questions, answers, and explanations.",
   "permissions": ["scripting", "activeTab", "storage"],
   "host_permissions": [
     "https://www.udemy.com/*",
-    "https://texttospeech.googleapis.com/*"
+    "https://texttospeech.googleapis.com/*",
+    "https://api.openai.com/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["https://www.udemy.com/*"],
