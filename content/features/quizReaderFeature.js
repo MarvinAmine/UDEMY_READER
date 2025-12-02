@@ -29,6 +29,9 @@
     }
   };
 
+  // Keep a safety margin under the official 5000-byte limit
+  const GOOGLE_TTS_MAX_BYTES = 4800;
+
   function log(...args) {
     console.log("[UdemyReader][QuizReader]", ...args);
   }
@@ -55,8 +58,12 @@
         "Loaded Google TTS key from storage:",
         state.googleApiKey ? "present" : "empty"
       );
+
+      // NEW: re-evaluate mode now that we know if we have a TTS key
+      chooseInitialMode(true);
     });
   }
+
 
   function initVoices() {
     if (!synth) {
@@ -84,8 +91,18 @@
     }, 2000);
   }
 
-  function chooseInitialMode() {
-    if (state.ttsMode !== "auto") return;
+  function chooseInitialMode(force = false) {
+    // Allow recalculation if:
+    // - we are still in "auto" (first time)
+    // - we previously had "none" (no available TTS yet), or
+    // - we explicitly force a recalculation (force === true)
+    if (
+      !force &&
+      state.ttsMode !== "auto" &&
+      state.ttsMode !== "none"
+    ) {
+      return;
+    }
 
     if (state.hasWebVoices) {
       state.ttsMode = "webspeech";
@@ -94,9 +111,12 @@
       log("Using Google Cloud TTS (no local voices).");
     } else {
       state.ttsMode = "none";
-      setStatus("No system voices available and no Google TTS key configured. The reader cannot speak.");
+      setStatus(
+        "No system voices available and no Google TTS key configured. The reader cannot speak."
+      );
     }
   }
+
 
   /* -------------------------------------------------------------
    * PUBLIC: mount
@@ -313,8 +333,16 @@
     if (!state.activeCard) return;
 
     state.currentText = cleaned;
-    chooseInitialMode();
-    if (state.ttsMode === "none") return;
+
+    // NEW: force re-check of mode in case voices/key became available
+    chooseInitialMode(true);
+    if (state.ttsMode === "none") {
+      // Make it clear why nothing is playing instead of silently failing
+      setStatus(
+        "No system voices available and no Google TTS key configured. The reader cannot speak."
+      );
+      return;
+    }
 
     stop(true);             // keep mode
     prepareHighlightWords();
@@ -327,6 +355,7 @@
       setStatus("No TTS mode available.");
     }
   }
+
 
   function pause() {
     if (!state.isPlaying || state.isPaused) return;
@@ -442,6 +471,41 @@
    * GOOGLE CLOUD TTS (direct from content script)
    * ------------------------------------------------------------- */
 
+  // Split a string into chunks that are each <= maxBytes in UTF-8.
+  function splitTextIntoChunksByBytes(text, maxBytes) {
+    if (!text) return [];
+
+    // Fallback if TextEncoder is not available (older browsers)
+    if (typeof TextEncoder === "undefined") {
+      const approxChars = Math.floor(maxBytes * 0.9);
+      const chunks = [];
+      for (let i = 0; i < text.length; i += approxChars) {
+        chunks.push(text.slice(i, i + approxChars));
+      }
+      return chunks;
+    }
+
+    const encoder = new TextEncoder();
+    const chunks = [];
+    let current = "";
+    let currentBytes = 0;
+
+    for (const ch of text) {
+      const byteLength = encoder.encode(ch).length;
+      if (currentBytes + byteLength > maxBytes) {
+        if (current) chunks.push(current);
+        current = ch;
+        currentBytes = byteLength;
+      } else {
+        current += ch;
+        currentBytes += byteLength;
+      }
+    }
+
+    if (current) chunks.push(current);
+    return chunks;
+  }
+
   async function speakWithGoogleTTS(text) {
     if (!state.googleApiKey) {
       setStatus("Google TTS not configured. Please set your API key in the popup.");
@@ -452,78 +516,128 @@
       "https://texttospeech.googleapis.com/v1/text:synthesize?key=" +
       encodeURIComponent(state.googleApiKey);
 
-    try {
-      setStatus("Contacting Google Text-to-Speech…");
-      log("Sending text to Google TTS, length:", text.length);
+    // Prepare chunks so each request stays under the 5000-byte limit.
+    const chunks = splitTextIntoChunksByBytes(text, GOOGLE_TTS_MAX_BYTES);
+    if (!chunks.length) {
+      setStatus("Nothing to read.");
+      return;
+    }
 
-      const resp = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: { text },
-          voice: {
-            languageCode: "en-US",
-            name: "en-US-Wavenet-D",
-            ssmlGender: "MALE"
-          },
-          audioConfig: {
-            audioEncoding: "MP3",
-            speakingRate: 1.0,
-            pitch: 0.0
-          }
-        })
-      });
+    log(
+      "Sending text to Google TTS in",
+      chunks.length,
+      "chunk(s). Total length:",
+      text.length
+    );
 
-      if (!resp.ok) {
-        const bodyText = await resp.text().catch(() => "");
-        throw new Error(
-          "HTTP " + resp.status + " " + resp.statusText + " – " + bodyText
-        );
-      }
+    // Mark as playing once for the whole sequence
+    state.isPlaying = true;
+    state.isPaused = false;
 
-      const data = await resp.json();
-      if (!data.audioContent) {
-        throw new Error("No audioContent in Google TTS response");
-      }
+    let chunkIndex = 0;
 
-      const audioSrc = "data:audio/mp3;base64," + data.audioContent;
+    const playNextChunk = async () => {
+      // If the user stopped playback, don't continue.
+      if (!state.isPlaying) return;
 
-      if (state.currentAudio) {
-        try {
-          state.currentAudio.pause();
-        } catch (_) {}
-      }
-
-      const audio = new Audio(audioSrc);
-      state.currentAudio = audio;
-      state.isPlaying = true;
-      state.isPaused = false;
-
-      audio.onended = () => {
+      if (chunkIndex >= chunks.length) {
+        // All chunks done
         state.isPlaying = false;
         state.isPaused = false;
         stopHighlightTimer(true);
         setStatus("Finished.");
-      };
+        return;
+      }
 
-      audio.onerror = (err) => {
-        log("Audio playback error", err);
+      const chunkText = chunks[chunkIndex];
+      const thisChunkNumber = chunkIndex + 1;
+      const totalChunks = chunks.length;
+      chunkIndex += 1;
+
+      try {
+        setStatus(
+          totalChunks > 1
+            ? `Contacting Google Text-to-Speech… (${thisChunkNumber}/${totalChunks})`
+            : "Contacting Google Text-to-Speech…"
+        );
+
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            input: { text: chunkText },
+            voice: {
+              languageCode: "en-US",
+              name: "en-US-Wavenet-D",
+              ssmlGender: "MALE"
+            },
+            audioConfig: {
+              audioEncoding: "MP3",
+              speakingRate: 1.0,
+              pitch: 0.0
+            }
+          })
+        });
+
+        if (!resp.ok) {
+          const bodyText = await resp.text().catch(() => "");
+          throw new Error(
+            "HTTP " + resp.status + " " + resp.statusText + " – " + bodyText
+          );
+        }
+
+        const data = await resp.json();
+        if (!data.audioContent) {
+          throw new Error("No audioContent in Google TTS response");
+        }
+
+        const audioSrc = "data:audio/mp3;base64," + data.audioContent;
+
+        if (state.currentAudio) {
+          try {
+            state.currentAudio.pause();
+          } catch (_) {}
+        }
+
+        const audio = new Audio(audioSrc);
+        state.currentAudio = audio;
+
+        // Start highlighting only once, on the first chunk.
+        if (!state.highlight.timerId) {
+          startHighlightTimer(false);
+        }
+
+        audio.onended = () => {
+          // Only move to next chunk if we are still in "playing" state.
+          if (!state.isPlaying) return;
+          playNextChunk();
+        };
+
+        audio.onerror = (err) => {
+          log("Audio playback error", err);
+          state.isPlaying = false;
+          state.isPaused = false;
+          stopHighlightTimer(true);
+          setStatus("Audio playback error: " + (err?.message || "Unknown error"));
+        };
+
+        await audio.play();
+        setStatus(
+          totalChunks > 1
+            ? `Reading with Google Text-to-Speech… (${thisChunkNumber}/${totalChunks})`
+            : "Reading with Google Text-to-Speech…"
+        );
+      } catch (err) {
+        log("Google TTS failed", err);
         state.isPlaying = false;
         state.isPaused = false;
         stopHighlightTimer(true);
-        setStatus("Audio playback error: " + (err?.message || "Unknown error"));
-      };
+        setStatus("Google TTS error: " + err.message);
+      }
+    };
 
-      startHighlightTimer(false);
-      await audio.play();
-      setStatus("Reading with Google Text-to-Speech…");
-    } catch (err) {
-      log("Google TTS failed", err);
-      state.isPlaying = false;
-      state.isPaused = false;
-      stopHighlightTimer(true);
-      setStatus("Google TTS error: " + err.message);
-    }
+    // Kick off the first chunk (rest is chained via onended)
+    playNextChunk();
   }
 
   /* -------------------------------------------------------------
