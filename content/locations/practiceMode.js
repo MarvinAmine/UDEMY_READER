@@ -86,9 +86,7 @@
         <span class="cz-tts-title">Quiz Reader</span>
         <button type="button" class="cz-tts-btn" data-action="play-question">▶ Play Q + answers</button>
         <button type="button" class="cz-tts-btn" data-action="play-selection">▶ Play selection</button>
-        <button type="button" class="cz-tts-btn" data-action="pause">⏸ Pause</button>
-        <button type="button" class="cz-tts-btn" data-action="resume">⏯ Resume</button>
-        <button type="button" class="cz-tts-btn" data-action="stop">⏹ Stop</button>
+        <button type="button" class="cz-tts-btn" data-action="stop" disabled>⏹ Stop</button>
       </div>
       <div class="cz-tts-status">
         Ready. Use “Play Q + answers” or select some text and use “Play selection”.
