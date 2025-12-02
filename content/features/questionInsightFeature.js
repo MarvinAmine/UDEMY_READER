@@ -116,9 +116,7 @@
           }
 
           const analysis = resp.analysis || {};
-          const optionLetters = safeGetOptionLetters(config);
-          const html = renderAnalysis(analysis, optionLetters);
-          setBodyHtml(bodyEl, html);
+          applyAnalysisToBody(bodyEl, analysis, config);
 
           if (questionId) {
             recordQuestionAnalysis(questionId, analysis);
@@ -427,6 +425,22 @@
     return html;
   }
 
+  /**
+   * Public helper so other content scripts (practiceMode/reviewMode)
+   * can re-apply a cached analysis JSON into an existing
+   * .cz-tts-analysis-body without re-calling the LLM.
+   *
+   * @param {HTMLElement} bodyEl  - The .cz-tts-analysis-body element
+   * @param {Object} analysis     - Parsed JSON analysis
+   * @param {Object} config       - Same config that was used for mount()
+   */
+  function applyAnalysisToBody(bodyEl, analysis, config) {
+    if (!bodyEl || !analysis) return;
+    const optionLetters = safeGetOptionLetters(config);
+    const html = renderAnalysis(analysis, optionLetters);
+    setBodyHtml(bodyEl, html);
+  }
+
   function escapeHtml(str) {
     return String(str)
       .replace(/&/g, "&amp;")
@@ -465,7 +479,7 @@
     });
   }
 
-  const questionInsight = { mount };
+  const questionInsight = { mount, applyAnalysisToBody };
 
   window.czFeatures = window.czFeatures || {};
   window.czFeatures.questionInsight = questionInsight;

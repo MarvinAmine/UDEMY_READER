@@ -6,11 +6,13 @@
     console.log("[UdemyReader][ReviewMode]", ...args);
   }
 
-  function isReviewPage() {
-    return !!document.querySelector(
-      ".result-pane--question-result-pane-wrapper--2bGiz"
-    );
-  }
+  // Full review pages wrap each question result in this container.
+  const REVIEW_BLOCK_SELECTOR =
+    ".result-pane--question-result-pane-wrapper--2bGiz";
+  // Inline per-question result (after validating a single practice question)
+  // uses this container.
+  const INLINE_RESULT_SELECTOR =
+    ".question-result--question-result--LWiOB";
 
   function findPromptEl(block) {
     if (!block) return null;
@@ -24,7 +26,17 @@
     return (text || "").replace(/\s+/g, " ").trim();
   }
 
-  // Q + answers only (for Play Q + answers + for analysis base)
+  function safeCall(fn) {
+    try {
+      return fn ? fn() : "";
+    } catch (e) {
+      log("config fn error", e);
+      return "";
+    }
+  }
+
+  // Canonical "question + answers" text (no correctness meta)
+  // Used both for TTS and for analysis cache keys.
   function extractReviewQuestionStemAndAnswers(block) {
     if (!block) return "";
 
@@ -40,25 +52,7 @@
     const answers = Array.from(answerBodies).map((bodyEl, idx) => {
       const label = String.fromCharCode(65 + idx);
       const text = normalizeWhitespace(bodyEl.innerText || "");
-
-      const pane = bodyEl.closest(
-        ".answer-result-pane--answer-correct--PLOEU, .answer-result-pane--answer-skipped--1NDPn"
-      );
-      const classes = pane ? pane.className : "";
-      const isCorrect =
-        classes &&
-        classes.indexOf("answer-result-pane--answer-correct--PLOEU") !== -1;
-
-      const userLabel = pane
-        ? pane.querySelector(
-            "[data-purpose='answer-result-header-user-label']"
-          )
-        : null;
-
-      let meta = "";
-      if (isCorrect) meta += " (correct)";
-      if (userLabel) meta += " (your selection)";
-      return `${label}. ${text}${meta}`;
+      return `${label}. ${text}`;
     });
 
     return (
@@ -67,7 +61,7 @@
     );
   }
 
-  // Explanation only (for Play explanation and to enrich analysis prompt)
+  // Explanation only (for Play explanation)
   function extractReviewExplanation(block) {
     if (!block) return "";
     const overallExplanation = block.querySelector("#overall-explanation");
@@ -120,6 +114,49 @@
     answerBodies.forEach((el) => roots.push(el));
     if (overallExplanation) roots.push(overallExplanation);
     return roots;
+  }
+
+  // Try to restore cached analysis for a review/inline result block
+  // using the canonical "question + answers" text as key.
+  function restoreCachedInsightForBlock(block, wrapper, insightConfig) {
+    if (!chrome?.runtime?.sendMessage) return;
+
+    const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
+    if (!analysisBody) return;
+
+    const textRaw = safeCall(insightConfig.getQuestionText);
+    const text = (textRaw || "").trim();
+    if (!text) return;
+
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "CZ_GET_CACHED_ANALYSIS",
+          text,
+          questionId: null
+        },
+        (resp) => {
+          if (!resp || !resp.ok || !resp.analysis) return;
+
+          const insightFeature =
+            window.czFeatures && window.czFeatures.questionInsight;
+          if (
+            !insightFeature ||
+            typeof insightFeature.applyAnalysisToBody !== "function"
+          ) {
+            return;
+          }
+
+          insightFeature.applyAnalysisToBody(
+            analysisBody,
+            resp.analysis,
+            insightConfig
+          );
+        }
+      );
+    } catch (e) {
+      log("restoreCachedInsightForBlock error", e);
+    }
   }
 
   function injectCardForBlock(block) {
@@ -176,6 +213,13 @@
       return;
     }
 
+    const insightConfig = {
+      // For analysis & cache, use the same canonical text as practice mode
+      getQuestionText: () => extractReviewQuestionStemAndAnswers(block),
+      getOptionLetters: () => getOptionLettersReview(block)
+    };
+
+    // TTS wiring (Q + answers, explanation, selection)
     quizFeature.mount(wrapper, {
       getText: () => extractReviewQuestionStemAndAnswers(block),
       // This is wired to "Play explanation" (explanation only)
@@ -191,25 +235,24 @@
     const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
     if (!analysisRoot) return;
 
-    // For analysis we send: question + answers + (optional) explanation
-    insightFeature.mount(analysisRoot, {
-      getQuestionText: () => {
-        const qa = extractReviewQuestionStemAndAnswers(block);
-        const expl = extractReviewExplanation(block);
-        return expl ? qa + "\n\nExplanation:\n" + expl : qa;
-      },
-      // No stable question ID in review DOM (optional); omit to skip stats
-      getOptionLetters: () => getOptionLettersReview(block)
-    });
+    // Question Insight button, using canonical text
+    insightFeature.mount(analysisRoot, insightConfig);
+
+    // Try to restore cached analysis (from practice mode or previous views)
+    restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
     log("Injected Quiz Reader + Question Insight card into review question block.");
   }
 
   function scanAndInjectAll() {
-    if (!isReviewPage()) return;
-    const blocks = document.querySelectorAll(
-      ".result-pane--question-result-pane-wrapper--2bGiz"
-    );
+    // Prefer full review blocks when present; otherwise fall back
+    // to the inline per-question result container used in practice mode.
+    let blocks = document.querySelectorAll(REVIEW_BLOCK_SELECTOR);
+    if (!blocks.length) {
+      blocks = document.querySelectorAll(INLINE_RESULT_SELECTOR);
+    }
+    if (!blocks.length) return;
+
     blocks.forEach(injectCardForBlock);
   }
 

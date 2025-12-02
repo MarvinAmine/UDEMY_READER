@@ -8,6 +8,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleAnalyzeQuestion(msg, sendResponse);
     return true; // keep message channel open for async response
   }
+
+  if (msg.type === "CZ_GET_CACHED_ANALYSIS") {
+    handleGetCachedAnalysis(msg, sendResponse);
+    return true;
+  }
 });
 
 async function handleAnalyzeQuestion(msg, sendResponse) {
@@ -18,11 +23,14 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
       return;
     }
 
-    // Build a cache key:
-    //  - Prefer a stable questionId when provided by the content script
-    //  - Otherwise fall back to the full text
     const questionId = msg.questionId ? String(msg.questionId) : null;
-    const cacheKey = questionId ? "qid:" + questionId : "text:" + text;
+
+    // Build cache keys:
+    //  - Prefer a stable questionId when provided by the content script
+    //  - Always also use the canonical text key
+    const cacheKeys = [];
+    if (questionId) cacheKeys.push("qid:" + questionId);
+    cacheKeys.push("text:" + text);
 
     // 1) Try cache first (chrome.storage.local)
     let cache = {};
@@ -32,21 +40,29 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
           chrome.storage.local.get(["czQuestionCache"], resolve);
         });
         cache = cacheRes.czQuestionCache || {};
-        const cachedEntry = cache[cacheKey];
-
-        if (cachedEntry && cachedEntry.analysis) {
-          // Immediate return from cache
-          sendResponse({
-            ok: true,
-            analysis: cachedEntry.analysis,
-            cached: true
-          });
-          return;
-        }
       } catch (e) {
         // Cache problems shouldn't break the feature; just log and continue.
         console.warn("[UdemyReader][Background] Cache read error:", e);
       }
+    }
+
+    let cachedEntry = null;
+    for (const key of cacheKeys) {
+      const entry = cache[key];
+      if (entry && entry.analysis) {
+        cachedEntry = entry;
+        break;
+      }
+    }
+
+    if (cachedEntry) {
+      // Immediate return from cache
+      sendResponse({
+        ok: true,
+        analysis: cachedEntry.analysis,
+        cached: true
+      });
+      return;
     }
 
     // 2) No cache hit → call LLM
@@ -124,18 +140,20 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
       return;
     }
 
-    // 3) Store in cache for future calls
+    // 3) Store in cache for future calls under all relevant keys
     if (chrome?.storage?.local) {
       try {
-        const cacheRes2 = await new Promise((resolve) => {
-          chrome.storage.local.get(["czQuestionCache"], resolve);
-        });
-        const cache2 = cacheRes2.czQuestionCache || {};
-        cache2[cacheKey] = {
+        // Reuse previously loaded cache object to avoid a second read.
+        const entry = {
           analysis: parsed,
           createdAt: Date.now()
         };
-        chrome.storage.local.set({ czQuestionCache: cache2 });
+
+        cacheKeys.forEach((key) => {
+          cache[key] = entry;
+        });
+
+        chrome.storage.local.set({ czQuestionCache: cache });
       } catch (e) {
         console.warn("[UdemyReader][Background] Cache write error:", e);
       }
@@ -143,6 +161,57 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
 
     // 4) Return fresh analysis
     sendResponse({ ok: true, analysis: parsed });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+// Lightweight helper: just check the cache using questionId + text,
+// no LLM call. Used by practiceMode/reviewMode to restore previously
+// fetched insight when revisiting a question.
+async function handleGetCachedAnalysis(msg, sendResponse) {
+  try {
+    const text = (msg.text || "").trim();
+    const questionId = msg.questionId ? String(msg.questionId) : null;
+
+    const cacheKeys = [];
+    if (questionId) cacheKeys.push("qid:" + questionId);
+    if (text) cacheKeys.push("text:" + text);
+
+    if (!cacheKeys.length) {
+      sendResponse({ ok: false, error: "NO_KEY" });
+      return;
+    }
+
+    let cache = {};
+    if (chrome?.storage?.local) {
+      try {
+        const cacheRes = await new Promise((resolve) => {
+          chrome.storage.local.get(["czQuestionCache"], resolve);
+        });
+        cache = cacheRes.czQuestionCache || {};
+      } catch (e) {
+        console.warn("[UdemyReader][Background] Cache read error:", e);
+      }
+    }
+
+    for (const key of cacheKeys) {
+      const entry = cache[key];
+      if (entry && entry.analysis) {
+        sendResponse({
+          ok: true,
+          analysis: entry.analysis,
+          cached: true,
+          key
+        });
+        return;
+      }
+    }
+
+    sendResponse({ ok: false, notFound: true });
   } catch (err) {
     sendResponse({
       ok: false,
