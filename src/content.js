@@ -88,8 +88,26 @@
             analysisPanel.applyAnalysisToBody(bodyEl, anay, config);
           }
 
-          if (questionId && analysisPanel && analysisPanel.recordQuestionAnalysis) {
-            analysisPanel.recordQuestionAnalysis(questionId, anay);
+          // CU1-A: persist question metadata + stats when we have an ID
+          if (analysisPanel && analysisPanel.recordQuestionAnalysis) {
+            const mode =
+              config && config.mode
+                ? String(config.mode)
+                : "unknown";
+
+            const extras = {
+              mode,
+              fullText: trimmed,
+              source: "analysis"
+            };
+
+            if (questionId) {
+              analysisPanel.recordQuestionAnalysis(
+                questionId,
+                anay,
+                extras
+              );
+            }
           }
         }
       );

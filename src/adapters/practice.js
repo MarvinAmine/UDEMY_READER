@@ -169,7 +169,9 @@
     const insightConfig = {
       getQuestionText: extractPracticeQuestionText,
       getQuestionId: getQuestionIdPractice,
-      getOptionLetters: getOptionLettersPractice
+      getOptionLetters: getOptionLettersPractice,
+      // CU1-A: mark this source as coming from practice mode
+      mode: "practice"
     };
 
     const currentId = (form.dataset && form.dataset.questionId) || "";

@@ -197,7 +197,9 @@
 
     const insightConfig = {
       getQuestionText: () => extractReviewQuestionStemAndAnswers(block),
-      getOptionLetters: () => getOptionLettersReview(block)
+      getOptionLetters: () => getOptionLettersReview(block),
+      // CU1-A: mark this source as coming from review mode
+      mode: "review"
     };
 
     quizFeature.mount(wrapper, {
