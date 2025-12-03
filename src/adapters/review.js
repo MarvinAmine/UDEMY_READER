@@ -1,17 +1,21 @@
-// content/locations/reviewMode.js
+// /src/adapters/review.js
+// Review mode adapter (full review pages + inline result)
+
 (function () {
-  if (window.czLocations && window.czLocations.reviewMode) return;
+  if (!window) return;
+  if (!window.czLocations) window.czLocations = {};
+  if (window.czLocations.reviewMode) return;
 
-  function log(...args) {
-    console.log("[UdemyReader][ReviewMode]", ...args);
-  }
+  const log = (window.czCore && window.czCore.log) || (() => {});
 
-  // Full review pages wrap each question result in this container.
   const REVIEW_BLOCK_SELECTOR =
     ".result-pane--question-result-pane-wrapper--2bGiz";
-  // Inline per-question result (after validating a single practice question)
-  // uses this container.
-  const INLINE_RESULT_SELECTOR = ".question-result--question-result--LWiOB";
+  const INLINE_RESULT_SELECTOR =
+    ".question-result--question-result--LWiOB";
+
+  function normalizeWhitespace(text) {
+    return (text || "").replace(/\s+/g, " ").trim();
+  }
 
   function findPromptEl(block) {
     if (!block) return null;
@@ -21,21 +25,6 @@
     );
   }
 
-  function normalizeWhitespace(text) {
-    return (text || "").replace(/\s+/g, " ").trim();
-  }
-
-  function safeCall(fn) {
-    try {
-      return fn ? fn() : "";
-    } catch (e) {
-      log("config fn error", e);
-      return "";
-    }
-  }
-
-  // Canonical "question + answers" text (no correctness meta)
-  // Used both for TTS and for analysis cache keys.
   function extractReviewQuestionStemAndAnswers(block) {
     if (!block) return "";
 
@@ -59,7 +48,6 @@
     );
   }
 
-  // Explanation only (for Play explanation)
   function extractReviewExplanation(block) {
     if (!block) return "";
     const overallExplanation = block.querySelector("#overall-explanation");
@@ -67,7 +55,6 @@
     return normalizeWhitespace(overallExplanation.innerText || "");
   }
 
-  // Option letters for Question Insight
   function getOptionLettersReview(block) {
     if (!block) return [];
     const answerBodies = block.querySelectorAll(
@@ -78,7 +65,6 @@
     );
   }
 
-  // Highlighting roots depend on which play action is active
   function getHighlightRootsReview(block, action) {
     if (!block) return [];
     const roots = [];
@@ -89,40 +75,36 @@
     );
     const overallExplanation = block.querySelector("#overall-explanation");
 
-    // Default / Play Q + answers
     if (!action || action === "play-question") {
       if (promptEl) roots.push(promptEl);
       answerBodies.forEach((el) => roots.push(el));
       return roots;
     }
 
-    // Play explanation
     if (action === "play-question-expl") {
       if (overallExplanation) roots.push(overallExplanation);
       return roots;
     }
 
-    // For selection we don't pre-compute highlight roots
     if (action === "play-selection") {
       return [];
     }
 
-    // Fallback – shouldn't normally hit
     if (promptEl) roots.push(promptEl);
     answerBodies.forEach((el) => roots.push(el));
     if (overallExplanation) roots.push(overallExplanation);
     return roots;
   }
 
-  // Try to restore cached analysis for a review/inline result block
-  // using the canonical "question + answers" text as key.
   function restoreCachedInsightForBlock(block, wrapper, insightConfig) {
     if (!chrome?.runtime?.sendMessage) return;
 
     const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
     if (!analysisBody) return;
 
-    const textRaw = safeCall(insightConfig.getQuestionText);
+    const textRaw = insightConfig.getQuestionText
+      ? insightConfig.getQuestionText()
+      : "";
     const text = (textRaw || "").trim();
     if (!text) return;
 
@@ -153,7 +135,7 @@
         }
       );
     } catch (e) {
-      log("restoreCachedInsightForBlock error", e);
+      log("ReviewMode", "restoreCachedInsightForBlock error", e);
     }
   }
 
@@ -200,57 +182,46 @@
       </div>
     `;
 
-    // Insert right after the question prompt
     promptEl.insertAdjacentElement("afterend", wrapper);
     block.dataset.czTtsInjected = "1";
 
-    const quizFeature = window.czFeatures && window.czFeatures.quizReader;
+    const quizFeature =
+      window.czFeatures && window.czFeatures.quizReader;
     const insightFeature =
       window.czFeatures && window.czFeatures.questionInsight;
 
     if (!quizFeature) {
-      log("quizReader feature missing – did quizReaderFeature.js load?");
+      log("ReviewMode", "quizReader feature missing");
       return;
     }
 
     const insightConfig = {
-      // For analysis & cache, use the same canonical text as practice mode
       getQuestionText: () => extractReviewQuestionStemAndAnswers(block),
       getOptionLetters: () => getOptionLettersReview(block)
     };
 
-    // TTS wiring (Q + answers, explanation, selection)
     quizFeature.mount(wrapper, {
       getText: () => extractReviewQuestionStemAndAnswers(block),
-      // This is wired to "Play explanation" (explanation only)
       getTextWithExplanation: () => extractReviewExplanation(block),
       getHighlightRoots: (action) => getHighlightRootsReview(block, action)
     });
 
     if (!insightFeature) {
-      log(
-        "questionInsight feature missing – did questionInsightFeature.js load?"
-      );
+      log("ReviewMode", "questionInsight feature missing");
       return;
     }
 
     const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
     if (!analysisRoot) return;
 
-    // Question Insight button, using canonical text
     insightFeature.mount(analysisRoot, insightConfig);
 
-    // Try to restore cached analysis (from practice mode or previous views)
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
-    log(
-      "Injected Quiz Reader + Question Insight card into review question block."
-    );
+    log("ReviewMode", "Injected Quiz Reader + Question Insight into review block");
   }
 
   function scanAndInjectAll() {
-    // Prefer full review blocks when present; otherwise fall back
-    // to the inline per-question result container used in practice mode.
     let blocks = document.querySelectorAll(REVIEW_BLOCK_SELECTOR);
     if (!blocks.length) {
       blocks = document.querySelectorAll(INLINE_RESULT_SELECTOR);
@@ -274,7 +245,6 @@
     subtree: true
   });
 
-  window.czLocations = window.czLocations || {};
   window.czLocations.reviewMode = {
     rescan: scanAndInjectAll
   };

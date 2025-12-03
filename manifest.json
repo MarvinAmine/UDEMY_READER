@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Udemy AWS Quiz Reader & Exam Copilot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Inline reader and AI copilot for Udemy AWS certification questions, answers, and explanations.",
   "permissions": ["scripting", "activeTab", "storage"],
   "host_permissions": [
@@ -16,12 +16,29 @@
     {
       "matches": ["https://www.udemy.com/*"],
       "js": [
-        "content/features/quizReaderFeature.js",
-        "content/features/questionInsightFeature.js",
-        "content/locations/practiceMode.js",
-        "content/locations/reviewMode.js"
+        "src/core/logger.js",
+        "src/core/state.js",
+        "src/core/storage.js",
+        "src/core/message.js",
+
+        "src/engines/inference.js",
+        "src/engines/analysisFormatter.js",
+        "src/engines/highlight.js",
+        "src/engines/ttsEngineWeb.js",
+        "src/engines/ttsEngineGoogle.js",
+
+        "src/ui/analysisPanel.js",
+        "src/ui/toolbar.js",
+        "src/ui/wrapper.js",
+
+        "src/adapters/practice.js",
+        "src/adapters/review.js",
+
+        "src/content.js"
       ],
-      "css": ["content/udemyReader.css"],
+      "css": [
+        "css/udemyReader.css"
+      ],
       "run_at": "document_idle"
     }
   ],
