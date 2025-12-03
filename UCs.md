@@ -1,150 +1,756 @@
-## 0. Overall Assumptions
+# 0. Overall Assumptions
 
 * Platform: **Chrome extension**.
 * Target site: **Udemy practice exams / quizzes** (AWS SAA/SAP etc.).
 * Modes you care about:
-
   * **Timed exam mode** (simulates real exam; minimal help, logging allowed).
   * **Practice mode** (no timer / relaxed; full help).
   * **Review mode** (post-exam review; full help).
 * Storage: all data is **local to the user**:
-
   * Prefer **IndexedDB** (or equivalent) via a small data access layer.
 * LLM: you’ll call some API (OpenAI, Claude, etc.) via:
-
   * Background script → remote API; content script only sends context.
 * Static knowledge base:
-
   * A curated JSON graph built from TD cheat sheets + Stephane Maarek mindmaps (and maybe others).
   * Used to anchor concepts (ids, names, domains).
 
 ---
 
-# UC1 – Question Attempt Capture (Core Logging)
+## 0.1 Shared Data Model
+
+These are the canonical types used across all UCs.
+
+```ts
+// Core per-attempt record (live or imported)
+type QuestionAttempt = {
+  attemptId: string;             // UUID v4
+  questionId: string;            // Udemy ID OR stable hash
+  examId: string | null;         // Udemy practice test id if detectable
+  examTitle: string | null;      // e.g. "AWS CSA Practice Test 5"
+  attemptOrdinal: number | null; // 1, 2, 3... ("Attempt X" on Udemy result page)
+  examAttemptKey: string | null; // e.g. "review-<examId>-attempt-2"
+
+  mode: "timed" | "practice" | "review" | "unknown";
+  source: "live" | "review-import"; // UC1-A sets "live", UC1-B sets "review-import"
+
+  timestamp: number;             // Date.now() or parsed completion time
+
+  stemText: string;              // raw stem
+  choices: {
+    index: number;               // 0-based
+    label: string;               // "A", "B", "C", ...
+    text: string;
+  }[];
+
+  chosenIndices: number[];       // selected options
+  correctIndices: number[];      // ground truth from DOM, if available
+  isCorrect: boolean | null;     // null if we can’t infer correctness
+
+  // Enriched later by UC2 for live attempts
+  confidence?: "sure" | "unsure" | "guess" | null;
+};
+
+// Stable, de-duplicated question info (stem, choices, explanation, links)
+type QuestionMeta = {
+  questionId: string;
+  examId: string | null;
+  examTitle: string | null;
+
+  stemText: string;
+  choices: {
+    index: number;
+    label: string;
+    text: string;
+  }[];
+
+  domainLabel: string | null;         // e.g. "Design High-Performing Architectures"
+
+  officialExplanationHtml: string | null; // raw innerHTML from Udemy "Overall explanation"
+  referenceLinks: {
+    url: string;
+    kind: "aws_docs" | "td_cheat_sheet" | "udemy_internal" | "other";
+  }[];
+
+  firstSeenAt: number;
+  lastSeenAt: number;
+};
+
+// Per exam attempt (e.g. "Practice Test 5 – Attempt 2")
+type ExamAttemptMeta = {
+  examAttemptKey: string;             // e.g. "review-<examId>-attempt-2"
+  examId: string | null;
+  examTitle: string | null;
+  attemptOrdinal: number | null;
+  mode: "timed" | "practice" | "review-only" | "unknown";
+
+  totalQuestions: number | null;
+  correctCount: number | null;
+  incorrectCount: number | null;
+  skippedCount: number | null;
+  markedCount: number | null;
+
+  completedAt: number | null;         // if parsable from Udemy
+  importedAt: number;                 // when stored
+  source: "live" | "review-import";   // here: usually "review-import"
+};
+
+// Concept tags per question
+type QuestionConcept = {
+  questionId: string;
+  conceptId: string;
+  confidence: number;   // 0..1
+};
+
+// Help events (UC3)
+type ConceptHelpEvent = {
+  id: string;
+  questionId: string;
+  attemptId: string | null;
+  conceptId: string | null;
+  highlightedText: string;
+  mode: "practice" | "review" | "timed" | "unknown";
+  timestamp: number;
+  savedForReview: boolean;
+};
+
+// Explanation summaries (UC6)
+type ExplanationSummary = {
+  attemptId: string;
+  questionId: string;
+  conceptIds: string[];
+  stickyRule: string;
+  eliminationClues: string[];
+  userChoiceSummary: string;
+  correctChoiceSummary: string;
+  createdAt: number;
+};
+
+// Concept stats (UC7)
+type ConceptStats = {
+  conceptId: string;
+  totalAttempts: number;
+  correctAttempts: number;
+  wrongAttempts: number;
+  guessAttempts: number;
+  unsureAttempts: number;
+  sureAttempts: number;
+  helpRequests: number;     // from UC3
+  lastSeenAt: number | null;
+  lastWrongAt: number | null;
+  masteryScore: number;     // 0..100
+  priorityScore: number;    // 0..100
+};
+
+// Review interactions inside guided sessions (UC9)
+type ReviewInteraction = {
+  id: string;
+  questionId: string;
+  conceptIds: string[];
+  timestamp: number;
+  selfReportedRecall: "remembered" | "fuzzy" | "dont_remember";
+  postReviewConfidence: "sure" | "unsure" | "guess" | null;
+};
+````
+
+**IndexedDB logical stores:**
+
+* `Attempts` → `QuestionAttempt`
+* `QuestionMeta` → `QuestionMeta`
+* `ExamAttempts` → `ExamAttemptMeta`
+* `QuestionConcepts` → `QuestionConcept`
+* `ConceptHelpEvents` → `ConceptHelpEvent`
+* `ExplanationSummaries` → `ExplanationSummary`
+* `ConceptStats` → `ConceptStats`
+* (optional) `ReviewInteractions` → `ReviewInteraction`
+
+---
+
+# UC1-A – Question Attempt Capture (Core Live Logging)
 
 **Priority:** P1 (must-have; everything else builds on it)
-**Depends on:** none
+**Depends on:** basic storage layer (`Attempts`, `QuestionMeta`)
 
 ### Goal
 
-Record **every question attempt** as a structured event: what question, which answers were chosen, whether it was correct, and which mode the user was in.
+For **live usage** (while answering questions), record every submitted attempt as a `QuestionAttempt` and keep `QuestionMeta` up to date.
 
 ### Trigger
 
-* User **submits** an answer OR Udemy reveals correctness (green/red states).
-* This happens in:
+* User **submits** an answer OR Udemy reveals correctness (green/red states) in:
 
   * Timed mode
   * Practice mode
-  * Review mode (if re-answering is possible)
+  * Review mode (if Udemy allows re-answering inline)
 
 ### Flow
 
-1. **Detect Question Context**
+1. **Detect Question Context (Live question page)**
 
-   * In content script, locate the question container, e.g.:
+   In content script:
+
+   ```js
+   const form = document.querySelector(
+     'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]'
+   );
+   if (!form) return;
+   ```
+
+   Extract:
+
+   * `questionId` from dataset if present:
 
      ```js
-     const form = document.querySelector(
-       'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]'
+     const nativeQuestionId = form.dataset.questionId || null; // e.g. "134499133"
+     ```
+
+   * `examId` from URL:
+
+     ```js
+     const match = window.location.pathname.match(/practice-test\/(\d+)\//);
+     const examId = match ? match[1] : null;
+     ```
+
+   * `examTitle` if visible on page (optional).
+
+   If there is no native id, you’ll fall back later to `computeQuestionHash(stemText, choices)`; this **must be the same** function used in UC1-B.
+
+2. **Extract Stem and Choices**
+
+   ```js
+   const promptEl = form.querySelector(".mc-quiz-question--question-prompt--9cMw2");
+   const stemText = promptEl ? promptEl.innerText.trim() : "";
+
+   const answerBlocks = form.querySelectorAll(".mc-quiz-answer--answer-body--V-o8d");
+   const choices = [];
+   answerBlocks.forEach((block, idx) => {
+     const text = block.innerText.trim();
+     const label = String.fromCharCode("A".charCodeAt(0) + idx);
+     choices.push({ index: idx, label, text });
+   });
+   ```
+
+   If `nativeQuestionId` is missing:
+
+   ```js
+   const rawKey = stemText + "||" + choices.map(c => c.text).join("||");
+   const hashedId = hashString(rawKey);
+   const questionId = nativeQuestionId || hashedId;
+   ```
+
+3. **Detect Submission / Result**
+
+   Detect when evaluation is done:
+
+   * Attach listener to submit/check button:
+
+     ```js
+     const submitBtn = form.querySelector(
+       "button[type='submit'], button[data-purpose='submit-btn']"
      );
+     if (submitBtn) {
+       submitBtn.addEventListener("click", () => {
+         // Later, after DOM update, read correctness
+       });
+     }
      ```
 
-   * Read:
+   * Or use a MutationObserver to watch for classes/icons indicating evaluation.
 
-     * `questionId` from `form.dataset.questionId` (e.g. `data-question-id="134499133"`).
-     * `examId` if available (can be parsed from URL, e.g. `/practice-test/XXXXX/`).
+   Detect chosen options:
 
-   * Extract raw **stem text** (no simplification yet):
+   ```js
+   const chosenIndices = [];
+   const inputEls = form.querySelectorAll("input[type='radio'], input[type='checkbox']");
+   inputEls.forEach((input, idx) => {
+     if (input.checked) chosenIndices.push(idx);
+   });
+   ```
 
-     ```js
-     const promptEl = form.querySelector(".mc-quiz-question--question-prompt--9cMw2");
-     const stemText = promptEl ? promptEl.innerText.trim() : "";
-     ```
+4. **Detect Correctness**
 
-   * Extract **answer choices**:
+   After Udemy paints correctness:
 
-     * For each `.mc-quiz-answer--answer-body--V-o8d`, capture:
+   ```js
+   const correctIndices = [];
+   answerBlocks.forEach((block, idx) => {
+     const isCorrect =
+       block.classList.contains("mc-quiz-answer--correct--...") ||
+       block.querySelector("svg[data-purpose='correct-icon']");
+     if (isCorrect) correctIndices.push(idx);
+   });
 
-       * `choiceIndex` (0-based)
-       * `label` (A, B, C, …)
-       * `text` (innerText)
+   let isCorrect = null;
+   if (chosenIndices.length && correctIndices.length) {
+     const chosenSet = new Set(chosenIndices);
+     const correctSet = new Set(correctIndices);
+     isCorrect =
+       chosenSet.size === correctSet.size &&
+       [...chosenSet].every(i => correctSet.has(i));
+   }
+   ```
 
-2. **Detect Submission / Result**
+   If Udemy doesn’t expose correct answers yet (for example, in a pure timed run where answers are only revealed at the end):
 
-   * Hook on:
+   ```ts
+   const correctIndices: number[] = [];
+   const isCorrect: boolean | null = null;
+   ```
 
-     * The “Check” / “Submit” button click, **or**
-     * A DOM mutation where answer choices gain correctness classes (e.g. “correct” / “incorrect”).
-   * Detect **which choice(s)** user selected:
+5. **Detect Mode (Best Effort v1)**
 
-     * Check each `<input name="answer">` or multi-select checkboxes: `checked === true`.
+   Heuristic:
 
-3. **Detect Correctness**
+   * Visible countdown / “Remaining time” → `"timed"`.
+   * “Practice mode” label → `"practice"`.
+   * Inline review question with explanation visible → `"review"`.
+   * Else → `"unknown"`.
 
-   * Prefer reading Udemy’s DOM:
+6. **Build Live `QuestionAttempt`**
 
-     * Correct answers often get a “correct” class or a green icon.
-     * Extract `correctIndices` based on these classes.
-   * Compute:
+   Content script builds:
 
-     ```ts
-     isCorrect = (set(chosenIndices) == set(correctIndices));
-     ```
+   ```ts
+   const attempt: QuestionAttempt = {
+     attemptId: generateUuid(),
+     questionId,
+     examId,
+     examTitle: null,           // or extracted title if available
+     attemptOrdinal: null,      // live question; full exam summary owned by UC1-B
+     examAttemptKey: null,      // same reason
 
-4. **Detect Mode (Best Effort v1)**
+     mode,                      // "timed" | "practice" | "review" | "unknown"
+     source: "live",
+     timestamp: Date.now(),
 
-   * Use a heuristic:
+     stemText,
+     choices,
+     chosenIndices,
+     correctIndices,
+     isCorrect,
+     confidence: null           // will be updated by UC2
+   };
+   ```
 
-     * If there is a visible countdown timer or “Remaining time” → **timed**.
-     * If “Practice mode” label is present → **practice**.
-     * If on result/review page (`/learn/quiz/review/`) → **review**.
-   * If detection is unreliable, **store `"unknown"`** but don’t block logging.
+7. **Upsert `QuestionMeta` From Live View**
 
-5. **Build Attempt Event**
+   ```ts
+   const now = Date.now();
 
-   * Content script composes:
+   const metaPatch: Partial<QuestionMeta> = {
+     questionId,
+     examId,
+     examTitle: null,   // fill if you can see it on the page
+     stemText,
+     choices,
+     lastSeenAt: now
+   };
+   ```
 
-     ```ts
-     type QuestionAttempt = {
-       attemptId: string;             // UUID v4
-       questionId: string;            // from data-question-id
-       examId: string | null;
-       mode: "timed" | "practice" | "review" | "unknown";
-       timestamp: number;             // Date.now()
-       stemText: string;              // raw
-       choices: {
-         index: number;
-         label: string;               // "A" / "B" ...
-         text: string;
-       }[];
-       chosenIndices: number[];       // e.g. [1] or [0,2]
-       correctIndices: number[];      // from DOM
-       isCorrect: boolean;
-     };
-     ```
+   In background:
 
-6. **Persist**
+   * If no `QuestionMeta` exists:
 
-   * Send the event to background (`chrome.runtime.sendMessage`).
-   * Background stores it in IndexedDB:
+     * Create with `firstSeenAt = now`, `lastSeenAt = now`,
+       `domainLabel = null`, `officialExplanationHtml = null`,
+       `referenceLinks = []`.
+   * If exists:
 
-     * Store in `Attempts` store keyed by `attemptId`.
-     * Also maintain a `Questions` store keyed by `questionId` with stable metadata:
+     * Update `lastSeenAt`, and optionally update missing fields.
 
-       * `examId`, `stemText`, `choices`, firstSeenAt.
+8. **Persist Live Attempt**
+
+   * Send `attempt` to background via `chrome.runtime.sendMessage`.
+   * Background inserts into `Attempts` store.
 
 ### Edge Cases
 
-* If you **cannot find correct answers**, store `correctIndices: []` and `isCorrect: null` (tri-state) – don’t crash.
-* If question DOM changes (Udemy redesign), fail gracefully but log.
+* If you cannot detect correctness (`correctIndices` empty), store `isCorrect: null` and let UC1-B later import ground truth from the review page.
+* If Udemy DOM changes, wrap selectors with defensive checks and short-circuit without breaking the page.
+* The hash function used when `questionId` is missing **must be identical** between UC1-A and UC1-B to avoid split identities.
+
+---
+
+# UC1-B – Historical Attempt Import from Review (Backfill After Install)
+
+**Priority:** P1 (same tier as UC1-A – critical for first-time users)
+**Depends on:** UC1-A (data model, storage layer)
+
+## Goal
+
+Handle the scenario where the user installs the extension **after** taking one or more practice exams.
+
+When the user opens a **Udemy review page**, the extension should:
+
+1. **Reconstruct and log past question attempts** from the review DOM as `QuestionAttempt` with `source = "review-import"`.
+2. **Populate `QuestionMeta`** (stem, choices, domain, official explanation).
+3. **Create `ExamAttemptMeta` summaries** per attempt (“Practice Test 5 – Attempt 2”).
+4. **Attach official reference links** (AWS docs, TD cheat sheets, etc.) to each question.
+
+The effect: the system behaves as if those questions had been logged “live” previously.
+
+---
+
+## Trigger
+
+* User with extension installed visits a **Udemy exam review page**, e.g. URLs like:
+
+  * `/course/.../practice-test/.../review/`
+* The extension detects that:
+
+  * There is **no existing `ExamAttemptMeta`** with the same `examAttemptKey`, or
+  * The user explicitly asks to re-import.
+
+---
+
+## High-Level Flow
+
+1. Detect that this is a review page; identify exam and attempt.
+2. Parse exam-level metadata into `ExamAttemptMeta`.
+3. Optionally prompt user with an import banner.
+4. Iterate over question result panels; for each:
+
+   * Upsert `QuestionMeta` (stem, choices, domain, explanation, links).
+   * Insert a `QuestionAttempt` (`source = "review-import"`).
+5. Persist into IndexedDB with deduplication.
+
+---
+
+## Detailed Flow
+
+### Step 1 – Detect Review Context
+
+In content script:
+
+1. Check for review header:
+
+   ```js
+   const titleEl = document.querySelector(
+     'h2.results-header--title--yQsZc[data-purpose="title"]'
+   );
+   if (!titleEl) return; // not a review page
+   ```
+
+2. Extract `examTitle`:
+
+   ```js
+   const examTitle = titleEl.innerText.trim();
+   ```
+
+3. Extract `attemptOrdinal`:
+
+   ```js
+   const attemptEl = document.querySelector("span.ud-heading-lg");
+   const attemptOrdinal = attemptEl
+     ? parseInt(attemptEl.innerText.replace(/\D/g, ""), 10)
+     : null;
+   ```
+
+4. Extract `examId` from URL:
+
+   ```js
+   const match = window.location.pathname.match(/practice-test\/(\d+)\//);
+   const examId = match ? match[1] : null;
+   ```
+
+5. Build `examAttemptKey`:
+
+   ```js
+   const examAttemptKey = `review-${examId || "unknown"}-attempt-${attemptOrdinal || "unknown"}`;
+   ```
+
+6. Ask background if this `examAttemptKey` already exists in `ExamAttempts`.
+
+   * If exists:
+
+     * Either skip import or show a small “Already imported” badge.
+   * If not:
+
+     * Continue to banner or auto-import.
+
+### Step 2 – Optional Import Banner
+
+Content script may inject:
+
+```html
+<div class="cz-import-banner">
+  <span>
+    Do you want to import this exam attempt into your study profile?
+  </span>
+  <button data-action="cz-import-start">Import now</button>
+  <button data-action="cz-import-dismiss">Not now</button>
+</div>
+```
+
+In v1 you can skip the prompt and auto-import silently.
+
+When user accepts (or auto-import is enabled), proceed.
+
+### Step 3 – Parse Exam Summary Stats → `ExamAttemptMeta`
+
+From pills:
+
+```html
+<ul class="ud-unstyled-list pill-group-module--pill-group--q7hFg">
+  <li>... <span class="ud-btn-label">65 all</span></li>
+  <li>... <span class="ud-btn-label">65 correct</span></li>
+  <li>... <span class="ud-btn-label">0 incorrect</span></li>
+  <li>... <span class="ud-btn-label">0 skipped</span></li>
+  <li>... <span class="ud-btn-label">4 marked</span></li>
+</ul>
+```
+
+Pseudo:
+
+```js
+const pillSpans = Array.from(
+  document.querySelectorAll(".pill-group-module--pill-group--q7hFg .ud-btn-label")
+);
+
+function parseStat(label) {
+  const span = pillSpans.find(el =>
+    el.innerText.toLowerCase().includes(` ${label}`)
+  );
+  if (!span) return null;
+  const num = parseInt(span.innerText, 10);
+  return Number.isNaN(num) ? null : num;
+}
+
+const totalQuestions = parseStat("all");
+const correctCount   = parseStat("correct");
+const incorrectCount = parseStat("incorrect");
+const skippedCount   = parseStat("skipped");
+const markedCount    = parseStat("marked");
+```
+
+If completion date/time is available, parse it into `completedAt`; otherwise `completedAt = null`.
+
+Build `ExamAttemptMeta`:
+
+```ts
+const examAttempt: ExamAttemptMeta = {
+  examAttemptKey,
+  examId,
+  examTitle,
+  attemptOrdinal,
+  mode: "review-only",
+  totalQuestions,
+  correctCount,
+  incorrectCount,
+  skippedCount,
+  markedCount,
+  completedAt: completedAtOrNull,
+  importedAt: Date.now(),
+  source: "review-import"
+};
+```
+
+Background upserts into `ExamAttempts`.
+
+### Step 4 – Iterate Over Question Result Panels
+
+Question containers:
+
+```html
+<div class="result-pane--question-result-pane-wrapper--2bGiz">
+  <!-- header with "Question 1" and status -->
+  <!-- question stem -->
+  <!-- answers list -->
+  <!-- overall explanation -->
+  <!-- domain panel -->
+</div>
+```
+
+Select all:
+
+```js
+const questionWrappers = document.querySelectorAll(
+  ".result-pane--question-result-pane-wrapper--2bGiz"
+);
+```
+
+For each `wrapper`:
+
+#### 4.1 Question Id / Hash
+
+Try to read a native question id:
+
+```js
+const nativeIdEl = wrapper.querySelector("[data-question-id]");
+const nativeQuestionId = nativeIdEl ? nativeIdEl.getAttribute("data-question-id") : null;
+```
+
+If missing, compute stable hash:
+
+```js
+const stemEl = wrapper.querySelector(
+  ".result-pane--question-format--PBvdY.ud-text-md.rt-scaffolding"
+);
+const stemText = stemEl ? stemEl.innerText.trim() : "";
+
+const answerEls = wrapper.querySelectorAll('[data-purpose="answer-body"] .ud-heading-md');
+const choiceTexts = Array.from(answerEls).map(el => el.innerText.trim());
+
+const rawKey = stemText + "||" + choiceTexts.join("||");
+const questionId = nativeQuestionId || hashString(rawKey);
+```
+
+#### 4.2 Stem & Choices
+
+Reuse `stemText` and extract choices:
+
+```js
+const answerBlocks = wrapper.querySelectorAll('[data-purpose="answer"]');
+const choices = [];
+
+answerBlocks.forEach((block, idx) => {
+  const textEl = block.querySelector('[data-purpose="answer-body"] .ud-heading-md');
+  const text = textEl ? textEl.innerText.trim() : "";
+  const label = String.fromCharCode("A".charCodeAt(0) + idx);
+
+  choices.push({ index: idx, label, text });
+});
+```
+
+#### 4.3 User Choice and Correct Answer
+
+Using review DOM classes:
+
+```js
+const chosenIndices = [];
+const correctIndices = [];
+
+answerBlocks.forEach((block, idx) => {
+  const isCorrect = block.classList.contains("answer-result-pane--answer-correct--PLOEU");
+  const userLabel = block.querySelector('[data-purpose="answer-result-header-user-label"]');
+
+  if (isCorrect) correctIndices.push(idx);
+  if (userLabel) chosenIndices.push(idx); // "Your answer ..." label
+});
+
+let isCorrect = null;
+if (chosenIndices.length && correctIndices.length) {
+  const chosenSet = new Set(chosenIndices);
+  const correctSet = new Set(correctIndices);
+  isCorrect =
+    chosenSet.size === correctSet.size &&
+    [...chosenSet].every(i => correctSet.has(i));
+}
+```
+
+For imports, set `confidence = null`.
+
+#### 4.4 Domain Label
+
+```js
+const domainEl = wrapper.querySelector('[data-purpose="domain-pane"] .ud-text-md');
+const domainLabel = domainEl ? domainEl.innerText.trim() : null;
+```
+
+#### 4.5 Official Explanation HTML + Reference Links
+
+```js
+const explContainer = wrapper.querySelector(
+  ".overall-explanation-pane--overall-explanation--G-hLQ .ud-text-md.rt-scaffolding, #overall-explanation"
+);
+const officialExplanationHtml = explContainer ? explContainer.innerHTML.trim() : null;
+
+const referenceLinks = [];
+if (explContainer) {
+  const anchors = explContainer.querySelectorAll("a[href]");
+  anchors.forEach(a => {
+    const url = a.getAttribute("href");
+    if (!url) return;
+
+    let kind = "other";
+    if (url.includes("docs.aws.amazon.com")) kind = "aws_docs";
+    else if (url.includes("tutorialsdojo.com")) kind = "td_cheat_sheet";
+    else if (url.includes("udemy.com")) kind = "udemy_internal";
+
+    referenceLinks.push({ url, kind });
+  });
+}
+```
+
+#### 4.6 Upsert `QuestionMeta`
+
+```ts
+const now = Date.now();
+
+const meta: QuestionMeta = {
+  questionId,
+  examId,
+  examTitle,
+  stemText,
+  choices,
+  domainLabel,
+  officialExplanationHtml,
+  referenceLinks,
+  firstSeenAt: now,
+  lastSeenAt: now
+};
+```
+
+Background behavior:
+
+* If `QuestionMeta` exists:
+
+  * Keep `firstSeenAt` as-is, update `lastSeenAt`.
+  * Merge `referenceLinks` (dedupe by URL).
+  * Fill `domainLabel`, `examTitle`, `officialExplanationHtml` if missing or better data is available.
+* If not:
+
+  * Insert as-is.
+
+#### 4.7 Insert Imported `QuestionAttempt`
+
+```ts
+const attempt: QuestionAttempt = {
+  attemptId: generateUuid(),
+  questionId,
+  examId,
+  examTitle,
+  attemptOrdinal,
+  examAttemptKey,
+  mode: "review",
+  source: "review-import",
+  timestamp: Date.now(), // or completion time if parsed
+
+  stemText,
+  choices,
+  chosenIndices,
+  correctIndices,
+  isCorrect,
+  confidence: null
+};
+```
+
+Send to background for insertion into `Attempts`.
+
+### Step 5 – Deduplication & Idempotency
+
+1. **Exam-level dedup**
+
+   * Background checks `ExamAttempts` by `examAttemptKey`.
+   * If exists, you may:
+
+     * Skip new `ExamAttemptMeta`.
+     * Skip per-question imports unless user explicitly triggers a re-scan.
+
+2. **Question-level dedup**
+
+   * Enforce uniqueness on `(examAttemptKey, questionId)` in `Attempts`.
+   * If an entry already exists, you can skip or overwrite (idempotent import).
+
+3. **Meta-level updates**
+
+   * `QuestionMeta` is always upserted: `lastSeenAt` updated, links merged, explanation set if previously blank.
 
 ---
 
 # UC2 – Confidence & Meta-Input Capture
 
-**Priority:** P1.5 (high value, cheap to add once UC1 exists)
-**Depends on:** UC1 (question context)
+**Priority:** P1.5 (high value, cheap once UC1-A is done)
+**Depends on:** UC1-A (QuestionAttempt already logged)
 
 ### Goal
 
@@ -154,29 +760,27 @@ Capture how the user **felt** about their answer:
 * “Unsure”
 * “Pure guess”
 
-This is critical signal: a correct answer + “guess” reveals a **fragile concept**, not a strong one.
+This is critical: a correct answer + “guess” still indicates a weak concept.
 
 ### Trigger
 
-* Immediately **after** submission (after UC1 logging), and **before** or alongside showing explanations in practice/review mode.
+* Immediately **after** submission (after UC1-A logs the attempt), and before or alongside showing explanations in practice/review mode.
 
 ### Mode Behavior
 
 * **Timed mode**:
 
-  * Either **disable** confidence UI or make it a global toggle (“training overlay disabled in timed mode”).
-  * For v1, simplest: **no confidence prompt in timed mode**.
-
+  * For v1, do **not** show confidence UI (to keep timed runs clean).
 * **Practice / Review mode**:
 
-  * Show the small confidence UI.
+  * Show a small inline confidence UI below the question.
 
 ### Flow
 
-1. After UC1 logs the attempt, content script injects a small inline block under the question:
+1. After UC1-A logs the attempt, content script injects:
 
    ```html
-   <div class="cz-confidence-bar" data-attempt-id="...">
+   <div class="cz-confidence-bar" data-attempt-id="<attemptId>">
      <span>How confident were you?</span>
      <button data-confidence="sure">Sure</button>
      <button data-confidence="unsure">Unsure</button>
@@ -195,56 +799,57 @@ This is critical signal: a correct answer + “guess” reveals a **fragile conc
    };
    ```
 
-   * Send to background and store:
+   Send to background.
 
-     * Either in `Attempts` (add a `confidence` field),
-     * Or in a separate `ConfidenceEvents` store linked by `attemptId`.
+3. Background logic:
 
-3. UI:
+   * Look up the `QuestionAttempt` in `Attempts` by `attemptId`.
+   * Set `attempt.confidence = confidence`.
+   * Save back to `Attempts`.
+   * (Optional) also append a record to a small `ConfidenceEvents` log if you want time-series; **truth source** remains `QuestionAttempt.confidence`.
 
-   * After selection:
+4. UI feedback:
 
-     * Highlight the chosen option.
-     * Optionally show subtle text: “Noted for your study profile.”
+   * Visually highlight the chosen button.
+   * Optionally show a subtle “Saved” indicator.
 
 ### Edge Cases
 
-* If user never clicks, leave `confidence = null`.
-* If user changes their mind, last click wins.
+* If user never clicks, `confidence` stays `null`.
+* If user changes their mind, last click wins (background just overwrites `confidence` field).
+* For imported attempts (`source = "review-import"`), you typically don’t show confidence UI retroactively.
 
 ---
 
 # UC3 – Highlight-to-Explain Now (Immediate Concept Deep Dive)
 
 **Priority:** P2 (very high learning impact)
-**Depends on:** UC1 (context), UC2 (optional), UC4 (optional but nice to tie concepts)
+**Depends on:** UC1-A (context), UC2 (optional), UC4 (optional but useful)
 
 ### Goal
 
-Let the user highlight **exact phrases** they don’t fully understand (e.g. “VPC interface endpoint”, “Aurora global database during failover”) and get a **compact explanation right now**, optionally marking it for future review.
+Let the user highlight **exact phrases** they don’t fully understand (e.g. “VPC interface endpoint”, “Aurora global database during failover”) and get a **compact, structured explanation** right away, optionally marking it for later review.
 
 ### Mode Behavior
 
-* **Enabled** in:
+* Enabled in:
 
   * Practice mode
   * Review mode
-* **Disabled by default** in timed mode (no interactive help there).
+* Disabled by default in timed mode.
 
 ### Trigger
 
-* User selects text **within**:
+* User selects text within:
 
   * Question stem
   * Answer choices
-  * Explanation text
-* On `mouseup`, if selection is non-empty and inside allowed container, show inline bubble.
+  * Explanation text (from Udemy or from your own inserted explanation)
+* On `mouseup`, if selection is non-empty and inside an allowed container, show an inline bubble.
 
 ### Flow
 
 1. **Selection Detection**
-
-   In content script:
 
    ```js
    document.addEventListener("mouseup", () => {
@@ -254,8 +859,12 @@ Let the user highlight **exact phrases** they don’t fully understand (e.g. “
 
      const range = sel.getRangeAt(0);
      const container = range.commonAncestorContainer;
-     const form = container.closest?.('form.mc-quiz-question--container--dV-tK');
-     if (!form) return;
+
+     // Limit to quiz-related area
+     const questionRoot = container.closest?.(
+       'form.mc-quiz-question--container--dV-tK, .result-pane--question-result-pane-wrapper--2bGiz'
+     );
+     if (!questionRoot) return;
 
      // Show bubble near selection
    });
@@ -263,7 +872,7 @@ Let the user highlight **exact phrases** they don’t fully understand (e.g. “
 
 2. **Inline Bubble UI**
 
-   Insert a small floating bubble near the selection:
+   Insert:
 
    ```html
    <div class="cz-explain-bubble">
@@ -274,31 +883,34 @@ Let the user highlight **exact phrases** they don’t fully understand (e.g. “
 
 3. **Build Explain Request**
 
-   On click:
+   Use:
+
+   * `QuestionMeta` as canonical source for `stemText` / `choices` where available.
+   * Latest `QuestionAttempt` (if any) to get `chosenIndices`, `correctIndices`, `mode`, `attemptId`.
+   * `QuestionMeta.officialExplanationHtml` or explanation text from DOM.
 
    ```ts
    type ExplainRequest = {
      questionId: string;
      examId: string | null;
-     attemptId: string | null;    // last attempt for this question, if any
+     attemptId: string | null;       // most recent attempt for this question, if any
      highlightedText: string;
      fullStemText: string;
      chosenIndices: number[] | null;
      correctIndices: number[] | null;
-     explanationText: string | null; // Udemy explanation if available
+     explanationText: string | null; // from DOM or QuestionMeta.officialExplanationHtml
      mode: "practice" | "review" | "timed" | "unknown";
    };
    ```
 
-   * Send to background.
-   * Background calls LLM with:
+   Background receives this and calls LLM with:
 
-     * The static concept graph (TD + Stephane) as context,
-     * The request above.
+   * `ExplainRequest`
+   * Static concept graph (TD + Stephane) as context.
 
 4. **LLM Response Format**
 
-   Force the LLM to return strict JSON like:
+   Strict JSON, for example:
 
    ```json
    {
@@ -314,18 +926,18 @@ Let the user highlight **exact phrases** they don’t fully understand (e.g. “
      ],
      "common_confusions": [
        "Gateway endpoint works only with S3 and DynamoDB.",
-       "Interface endpoint uses ENIs in your subnets and is billed per hour + data."
+       "Interface endpoint uses ENIs in your subnets and is billed per hour plus data."
      ],
-     "sticky_rule": "If you see private subnets -> S3/DynamoDB and no internet access, think gateway endpoint."
+     "sticky_rule": "If you see private subnets → S3/DynamoDB with no internet access, think gateway endpoint."
    }
    ```
 
 5. **Render Deep Dive Card**
 
-   The content script renders a block under the question or under the explanation:
+   Under the question or explanation:
 
    ```html
-   <div class="cz-deep-dive-card" data-concept-id="...">
+   <div class="cz-deep-dive-card" data-concept-id="networking.vpc.endpoints.gateway_vs_interface">
      <div class="cz-deep-dive-title">VPC Gateway vs Interface Endpoints</div>
      <p class="cz-deep-dive-def">...</p>
      <ul class="cz-deep-dive-use">...</ul>
@@ -336,84 +948,87 @@ Let the user highlight **exact phrases** they don’t fully understand (e.g. “
 
 6. **Persist Concept Help Event**
 
-   Regardless of whether user clicked “Explain” or “Explain + add to review”, log:
+   Log:
 
    ```ts
-   type ConceptHelpEvent = {
-     id: string;
-     questionId: string;
-     attemptId: string | null;
-     conceptId: string | null;      // from LLM, or null if unknown
-     highlightedText: string;
-     mode: "practice" | "review" | "timed" | "unknown";
-     timestamp: number;
-     savedForReview: boolean;
+   const event: ConceptHelpEvent = {
+     id: generateUuid(),
+     questionId,
+     attemptId,
+     conceptId: llmOutput.concept_id || null,
+     highlightedText,
+     mode,
+     timestamp: Date.now(),
+     savedForReview: (action === "explain-and-save")
    };
    ```
 
-   Store in `ConceptHelpEvents` store.
+   Store in `ConceptHelpEvents`.
 
 ### Edge Cases
 
-* If LLM fails: show a graceful message: “Could not explain this right now.”
-* If concept_id is uncertain, allow `null` or `"misc.unknown"` and still show explanation, but mark for manual review later if needed.
+* If LLM fails, show a small non-blocking message ("Could not explain this right now.") and do not log an event.
+* If `concept_id` uncertain, allow `null` or a generic `"misc.unknown"` value; still show explanation, but session logic can treat it as low-confidence.
 
 ---
 
 # UC4 – Concept Extraction & Tagging (Per Question)
 
-**Priority:** P2.5 (required for any serious weakness modeling)
-**Depends on:** UC1
+**Priority:** P2.5 (required for serious weakness modeling)
+**Depends on:** UC1-A (question logged), UC1-B (for full explanation text)
 
 ### Goal
 
-For each question, auto-tag it with **1–3 concept IDs** from your static AWS concept ontology:
+For each question, assign **1–3 concept IDs** from your static AWS ontology:
 
-* e.g., `"storage.s3.object_lock"`, `"networking.vpc.nat_gateway"`, `"database.aurora.global_db_failover"`.
+* e.g. `"storage.s3.object_lock"`, `"networking.vpc.nat_gateway"`, `"database.aurora.global_db_failover"`.
+
+These tags power the weakness model and targeted review sessions.
 
 ### Trigger
 
-* When a **question is first seen** or first answered:
+* When a `QuestionMeta` is first fully available:
 
-  * After UC1 logs it.
-* Only run once per `questionId`; cache result.
+  * After UC1-A logs the question and
+  * (Optionally) after UC1-B imports explanation, so the LLM has maximum context.
+* Only run **once per questionId** unless you intentionally retrain/retag.
 
 ### Flow
 
 1. **Static Concept Graph**
 
-   Prepare a JSON like:
+   Packed with the extension:
 
    ```ts
    type ConceptNode = {
-     id: string;                    // "networking.vpc.endpoints.gateway_vs_interface"
-     name: string;                  // "VPC Gateway vs Interface Endpoints"
-     domain: string;                // "Networking"
-     aws_service: string;           // "VPC"
-     parent_id: string | null;      // for hierarchy
-     keywords: string[];            // ["gateway endpoint", "interface endpoint", "S3 private access", ...]
+     id: string;            // "networking.vpc.endpoints.gateway_vs_interface"
+     name: string;          // "VPC Gateway vs Interface Endpoints"
+     domain: string;        // "Networking"
+     aws_service: string;   // "VPC"
+     parent_id: string | null;
+     keywords: string[];    // ["gateway endpoint", "interface endpoint", "S3 private access", ...]
    };
    ```
 
-   Store this in extension package or fetched once and cached.
-
 2. **Build Tagging Request**
 
-   Background script, when needed, sends to LLM:
+   Use `QuestionMeta`:
 
    ```ts
-   type TaggingRequest = {
-     questionId: string;
-     stemText: string;
-     choices: string[];
-     explanationText: string | null;
-     knownConcepts: ConceptNode[]; // or a pruned subset to keep tokens low
+   const meta: QuestionMeta = /* from store */;
+
+   const taggingRequest = {
+     questionId: meta.questionId,
+     stemText: meta.stemText,
+     choices: meta.choices.map(c => c.text),
+     explanationText: meta.officialExplanationHtml, // or stripped text
+     knownConcepts: prunedConceptList // to keep tokens under control
    };
    ```
 
 3. **LLM Output Format**
 
-   Force JSON:
+   Strict JSON:
 
    ```json
    {
@@ -430,44 +1045,52 @@ For each question, auto-tag it with **1–3 concept IDs** from your static AWS c
    }
    ```
 
-4. **Persist**
+4. **Persist → `QuestionConcepts`**
 
-   Store in `QuestionConcepts` store:
+   Background:
 
    ```ts
-   type QuestionConcept = {
-     questionId: string;
-     conceptId: string;
-     confidence: number;   // 0..1
-   };
+   const items: QuestionConcept[] = output.concept_tags
+     .filter(tag => tag.confidence >= 0.5)
+     .slice(0, 3)
+     .map(tag => ({
+       questionId: meta.questionId,
+       conceptId: tag.concept_id,
+       confidence: tag.confidence
+     }));
    ```
 
-   * Enforce at most 3 high-confidence tags per question.
+   * Insert/overwrite `QuestionConcepts` entries for this `questionId`.
 
 5. **Reuse**
 
-   * UC3 (Deep Dive) can propose a `conceptId` if the highlighted text overlaps one of the concept keywords.
-   * UC6, UC7, UC8, UC9 all use `QuestionConcepts` heavily.
+   * UC3 can use `QuestionConcept` + concept keywords to pre-suggest `conceptId`.
+   * UC7 uses them to aggregate stats.
+   * UC8/UC9 use them to group questions by concept.
 
 ### Edge Cases
 
-* If no concept has confidence > threshold (e.g. 0.5), tag:
+* If no concept gets confidence > 0.5, store a fallback:
 
-  * `conceptId: "misc.unknown"`, `confidence: 0.2`.
+  ```ts
+  { questionId, conceptId: "misc.unknown", confidence: 0.2 }
+  ```
+
+* If ontology changes later, you may want a re-tagging job, but that’s outside v1 scope.
 
 ---
 
 # UC5 – Stem Simplification & Keyword Highlight
 
-**Priority:** P3 (very valuable, but depends on basics above)
-**Depends on:** UC1, optionally UC4
+**Priority:** P3 (very valuable for comprehension)
+**Depends on:** UC1-A (or `QuestionMeta`), UC4 (optional for better prompts)
 
 ### Goal
 
 Make long, wordy questions easier to parse by:
 
 1. Summarizing the **core scenario** in 1–3 short bullets.
-2. Highlighting a few **decisive phrases** in the original stem.
+2. Highlighting **decisive phrases** in the original stem.
 
 ### Mode Behavior
 
@@ -476,36 +1099,38 @@ Make long, wordy questions easier to parse by:
 
 ### Trigger
 
-* When a new question is loaded (before or after answering).
+* When a question view is initialized (load or navigation) and `QuestionMeta` is available.
 
 ### Flow
 
 1. **Gather Input**
 
-   * From UC1:
+   Prefer `QuestionMeta`:
 
-     * `stemText`
-     * `choices` (optional)
-   * Optionally: concept tags from UC4.
+   ```ts
+   const stemText = meta.stemText;
+   const choices = meta.choices.map(c => c.text);
+   const conceptIds = getConceptIdsForQuestion(meta.questionId); // from QuestionConcepts, optional
+   ```
 
-2. **LLM Request**
+   Build:
 
    ```ts
    type SimplifyRequest = {
      questionId: string;
      stemText: string;
      choices: string[];
-     conceptIds: string[]; // from UC4, optional
+     conceptIds: string[];
    };
    ```
 
-3. **LLM Output Format**
+2. **LLM Output Format**
 
    ```json
    {
      "summary_bullets": [
-       "On-premises VMs need to be migrated to AWS with minimal changes.",
-       "Company prefers lift-and-shift and wants to minimize downtime."
+       "On-premises VMs must be migrated to AWS with minimal changes.",
+       "Company wants a lift-and-shift approach with minimal downtime."
      ],
      "decisive_phrases": [
        "lift-and-shift",
@@ -520,9 +1145,9 @@ Make long, wordy questions easier to parse by:
    }
    ```
 
-4. **Render Simplified Stem**
+3. **Render Simplified Stem**
 
-   Insert block **above** the question:
+   Above the original question:
 
    ```html
    <div class="cz-stem-summary">
@@ -534,10 +1159,16 @@ Make long, wordy questions easier to parse by:
    </div>
    ```
 
-5. **Keyword Highlight**
+4. **Keyword Highlight in Original Stem**
 
-   * For each `decisive_phrase`, try to match it in the original question stem DOM.
-   * Wrap matches in `<span class="cz-key-phrase">` without changing font weight.
+   * For each `decisive_phrase`, search within the question stem DOM.
+
+   * Wrap exact matches in:
+
+     ```html
+     <span class="cz-key-phrase">minimize downtime</span>
+     ```
+
    * CSS:
 
      ```css
@@ -548,39 +1179,45 @@ Make long, wordy questions easier to parse by:
      }
      ```
 
+   Implement replacement at the text-node level to avoid breaking links or markup.
+
 ### Edge Cases
 
-* If LLM output is invalid or missing fields, skip summary and keep original question intact.
-* Avoid breaking links, code blocks, or math by scoping replacing to text nodes only.
+* If the LLM output is missing or malformed, skip simplification for that question quietly.
+* If a decisive phrase appears many times, you may highlight the first N matches to avoid over-highlighting.
 
 ---
 
 # UC6 – Post-Question Explanation Compression & Rule Extraction
 
 **Priority:** P3 (big value for review)
-**Depends on:** UC1, UC2, UC4
+**Depends on:** UC1-A (attempt), UC2 (confidence), UC4 (concept tags)
 
 ### Goal
 
-After the user sees the explanation, show a **compact, high-signal summary**:
+Once the user sees the explanation, show a **compact summary**:
 
 * Why their choice was wrong (if wrong).
 * Why the correct choice is right.
-* Which **clues** in the question eliminate wrong options.
-* One **sticky rule**.
+* Which clues eliminate wrong options.
+* A short “sticky rule” they can reuse later.
 
 ### Trigger
 
-* In **practice or review mode**, when:
+* In **practice** or **review** mode when:
 
-  * Explanation section becomes visible (DOM mutation),
-  * OR user clicks “Show explanation” / “Review question”.
+  * Udemy’s explanation panel becomes visible, or
+  * User opens a stored-explanation view inside your dashboard.
 
 ### Flow
 
 1. **Gather Context**
 
-   From UC1 + DOM:
+   Combine information from:
+
+   * `QuestionAttempt` (latest attempt for that question).
+   * `QuestionMeta` (stem, choices, officialExplanationHtml).
+   * `QuestionConcepts` (conceptIds).
 
    ```ts
    type ExplanationContext = {
@@ -594,31 +1231,29 @@ After the user sees the explanation, show a **compact, high-signal summary**:
      }[];
      chosenIndices: number[];
      correctIndices: number[];
-     explanationText: string | null;  // from Udemy
+     explanationText: string | null;  // from QuestionMeta.officialExplanationHtml or DOM
      confidence: "sure" | "unsure" | "guess" | null;
-     conceptIds: string[];           // from UC4
+     conceptIds: string[];
    };
    ```
 
-2. **LLM Request**
+2. **LLM Request / Response**
 
-   Send this to LLM and request strict JSON:
+   Request strict JSON, example response:
 
    ```json
    {
-     "user_choice_summary": "You selected option B, which focuses on Application Discovery but does not handle continuous replication.",
-     "correct_choice_summary": "Correct answer A uses AWS MGN (Migration Service) to continuously replicate VMs with minimal downtime.",
+     "user_choice_summary": "You picked option B, which only focuses on discovery and does not migrate VMs.",
+     "correct_choice_summary": "Correct answer A uses AWS MGN to continuously replicate VMs with minimal downtime.",
      "elimination_clues": [
-       "The question emphasizes 'lift-and-shift' and 'minimal downtime', which MGN supports directly.",
-       "Application Discovery Service only helps with discovery and planning, not actual replication."
+       "The question mentions 'lift-and-shift' and 'minimal downtime', which AWS MGN is built for.",
+       "Application Discovery Service is only for discovery and planning, not replication."
      ],
-     "sticky_rule": "If you see 'lift-and-shift' + 'minimal downtime' for VMs, think AWS MGN."
+     "sticky_rule": "If you see 'lift-and-shift' plus 'minimal downtime' for VMs, think AWS MGN."
    }
    ```
 
 3. **Render Under Explanation**
-
-   Content script injects a compact block:
 
    ```html
    <div class="cz-explainer">
@@ -632,55 +1267,62 @@ After the user sees the explanation, show a **compact, high-signal summary**:
      </div>
      <div class="cz-explainer-section">
        <strong>How to eliminate wrong options next time:</strong>
-       <ul>...</ul>
+       <ul>
+         <li>...</li>
+       </ul>
      </div>
      <p class="cz-explainer-rule"><strong>Rule:</strong> ...</p>
    </div>
    ```
 
-4. **Persist**
+4. **Persist Summary**
 
-   Store in `ExplanationSummaries`:
+   Build and store:
 
    ```ts
-   type ExplanationSummary = {
-     attemptId: string;
-     questionId: string;
-     conceptIds: string[];
-     stickyRule: string;
-     eliminationClues: string[];
-     userChoiceSummary: string;
-     correctChoiceSummary: string;
-     createdAt: number;
+   const summary: ExplanationSummary = {
+     attemptId: attempt.attemptId,
+     questionId: attempt.questionId,
+     conceptIds,
+     stickyRule: output.sticky_rule,
+     eliminationClues: output.elimination_clues,
+     userChoiceSummary: output.user_choice_summary,
+     correctChoiceSummary: output.correct_choice_summary,
+     createdAt: Date.now()
    };
    ```
 
-   This feeds into UC7/UC8/UC9.
+   Insert into `ExplanationSummaries`.
 
 ### Edge Cases
 
-* If explanationText is missing, LLM can infer from stem + choices only.
-* If LLM fails, do nothing; user still has the original Udemy explanation.
+* If there is no explanation text (rare in review), LLM can infer from stem + choices only.
+* If LLM fails, do nothing; user still has Udemy’s original explanation.
 
 ---
 
 # UC7 – Weakness Model & Mastery Scores (Concept-Level)
 
 **Priority:** P4 (core intelligence layer)
-**Depends on:** UC1, UC2, UC3, UC4, UC6
+**Depends on:** UC1-A, UC1-B, UC2, UC3, UC4, UC6
 
 ### Goal
 
-For each concept, maintain a **masteryScore (0–100)** and **priorityScore (0–100)**, based on:
+For each concept, maintain:
 
-* Wrong vs correct answers.
-* Confidence.
+* `masteryScore` (0–100): how well the user seems to understand it.
+* `priorityScore` (0–100): how urgently it should be reviewed.
+
+Based on:
+
+* Correct vs wrong answers.
+* Confidence levels.
 * Help requests (UC3).
-* Recency.
-
-This is the brain behind the dashboard and review sessions.
+* Recency (forgetting curve).
 
 ### Concept State Model
+
+(Already defined in 0.1, repeated here for context)
 
 ```ts
 type ConceptStats = {
@@ -691,23 +1333,25 @@ type ConceptStats = {
   guessAttempts: number;
   unsureAttempts: number;
   sureAttempts: number;
-  helpRequests: number;     // from UC3, savedForReview or any explain
+  helpRequests: number;
   lastSeenAt: number | null;
   lastWrongAt: number | null;
-  masteryScore: number;     // 0..100
-  priorityScore: number;    // 0..100
+  masteryScore: number;
+  priorityScore: number;
 };
 ```
 
 ### When to Update
 
-* After each **attempt** (UC1 + UC2).
-* After each **help request** (UC3).
-* Optionally after explanation view (UC6).
+* After every new `QuestionAttempt` (live or imported) where:
+
+  * `QuestionConcepts` tag the question with conceptIds.
+* After each `ConceptHelpEvent` (UC3).
+* Optionally when new `ExplanationSummary` is created (e.g. treat that as additional help).
 
 ### Update Logic (Heuristic v1)
 
-Define penalties and weights:
+Penalty constants:
 
 ```ts
 const WRONG_PENALTY = 25;
@@ -717,36 +1361,43 @@ const HELP_PENALTY = 15;
 const RECENCY_HALF_LIFE_DAYS = 14;
 ```
 
-#### 1. Aggregate stats per concept
+#### 1. Aggregate Stats per Concept
 
 For each `QuestionAttempt`:
 
-* Find all `conceptIds` from `QuestionConcepts`.
+* Find `conceptIds` from `QuestionConcepts`.
 * For each concept:
 
-  * Increment `totalAttempts`.
-  * If wrong:
+  ```ts
+  stats.totalAttempts++;
 
-    * `wrongAttempts++`
-    * If `confidence === "sure"` → heavier negative.
-  * If correct:
+  if (attempt.isCorrect === false) {
+    stats.wrongAttempts++;
+    stats.lastWrongAt = now;
+  } else if (attempt.isCorrect === true) {
+    stats.correctAttempts++;
+  }
 
-    * `correctAttempts++`
-  * If `confidence === "guess"` → `guessAttempts++`
-  * If `confidence === "unsure"` → `unsureAttempts++`
-  * If `confidence === "sure"` → `sureAttempts++`
-  * Update `lastSeenAt`, `lastWrongAt`.
+  if (attempt.confidence === "guess") stats.guessAttempts++;
+  if (attempt.confidence === "unsure") stats.unsureAttempts++;
+  if (attempt.confidence === "sure") stats.sureAttempts++;
+
+  stats.lastSeenAt = now;
+  ```
 
 For each `ConceptHelpEvent`:
 
-* `helpRequests++`
+```ts
+stats.helpRequests++;
+stats.lastSeenAt = Math.max(stats.lastSeenAt ?? 0, event.timestamp);
+```
+
+Imports (`source = "review-import"`) usually have `confidence = null`; they still contribute to correct/wrong counts.
 
 #### 2. Compute Base Mastery
 
-Start from 100 and subtract penalties:
-
 ```ts
-function computeMastery(stats: ConceptStats): number {
+function computeBaseMastery(stats: ConceptStats): number {
   let score = 100;
 
   score -= stats.wrongAttempts * WRONG_PENALTY;
@@ -754,7 +1405,6 @@ function computeMastery(stats: ConceptStats): number {
   score -= stats.unsureAttempts * UNSURE_PENALTY;
   score -= stats.helpRequests * HELP_PENALTY;
 
-  // clamp
   if (score < 0) score = 0;
   if (score > 100) score = 100;
   return score;
@@ -763,16 +1413,13 @@ function computeMastery(stats: ConceptStats): number {
 
 #### 3. Recency Adjustment
 
-* If concept wasn’t seen in a long time, lower mastery slightly.
-
 ```ts
 function adjustForRecency(stats: ConceptStats, baseScore: number, now: number): number {
   if (!stats.lastSeenAt) return baseScore;
 
   const days = (now - stats.lastSeenAt) / (1000 * 60 * 60 * 24);
-  const decayFactor = Math.exp(-days / RECENCY_HALF_LIFE_DAYS); // 1 at day 0, ~0.5 at half-life
+  const decayFactor = Math.exp(-days / RECENCY_HALF_LIFE_DAYS);
 
-  // Combine good & bad: we trust mastery less as time goes by
   const adjusted = 50 + (baseScore - 50) * decayFactor;
   return Math.round(adjusted);
 }
@@ -780,28 +1427,19 @@ function adjustForRecency(stats: ConceptStats, baseScore: number, now: number): 
 
 #### 4. Priority Score
 
-* A concept is high-priority if:
-
-  * Mastery is low **and**
-  * It’s relevant to the exam (you can hardcode importance by domain)
-
-Simple heuristic:
+Higher when mastery is low and recent trouble is high.
 
 ```ts
 function computePriority(stats: ConceptStats, mastery: number, now: number): number {
-  // Base priority is inverse of mastery
-  let priority = 100 - mastery;
+  let priority = 100 - mastery; // inverse of mastery
 
-  // Boost if wrongAttempts > 0 and lastWrongAt is recent
   if (stats.lastWrongAt) {
     const daysSinceWrong = (now - stats.lastWrongAt) / (1000 * 60 * 60 * 24);
     if (daysSinceWrong < 7) priority += 15;
   }
 
-  // Boost if helpRequests > 0
   priority += stats.helpRequests * 5;
 
-  // Clamp
   if (priority < 0) priority = 0;
   if (priority > 100) priority = 100;
   return Math.round(priority);
@@ -810,46 +1448,47 @@ function computePriority(stats: ConceptStats, mastery: number, now: number): num
 
 ### Storage
 
-* A `ConceptStats` store keyed by `conceptId`.
-* Updated incrementally after each new event.
+* `ConceptStats` store keyed by `conceptId`.
+* Updated incrementally whenever new attempts or help events are recorded.
 
 ---
 
 # UC8 – Weakness Dashboard & Concept Graph
 
 **Priority:** P4.5 (turns stats into insight)
-**Depends on:** UC7
+**Depends on:** UC7 (ConceptStats), UC4, UC6
 
 ### Goal
 
-Give the user a **visual overview** of their strong/weak areas and let them drill into a specific concept to see:
+Provide a **dashboard** showing:
 
-* Summary of the concept.
-* Their worst questions.
-* Related sticky rules.
+* Overall readiness.
+* Strong / weak domains.
+* Per-concept mastery and priority.
+* Drill-down into worst questions and key rules.
 
 ### Trigger
 
-* User opens the extension popup **or** clicks a “Dashboard” button in popup → open a dedicated dashboard page.
+* User opens the extension popup and clicks “Dashboard”, or
+* User opens a dedicated dashboard page directly.
 
 ### Data Input
 
-From UC7 + static concept graph + explanation summaries.
+* `ConceptStats` (UC7).
+* Static concept graph (names, domains, descriptions).
+* `ExplanationSummaries` (sticky rules).
+* `QuestionAttempts` + `QuestionMeta` for question snippets.
 
 ### UI Sections
 
 1. **Global Readiness Indicator**
 
-   * Show something like:
-
-     * “Overall readiness (rough): 72/100”
-     * Based on:
-
-       * Weighted average of masteryScores across all concepts (weight by domain importance).
+   * Show something like `Overall readiness (rough): 72/100`.
+   * Computed as a weighted average of `masteryScore` across concepts (weight by domain importance or number of questions).
 
 2. **Concept List by Domain**
 
-   Group concepts by AWS domain:
+   Group rows like:
 
    ```ts
    type ConceptDisplayRow = {
@@ -863,171 +1502,209 @@ From UC7 + static concept graph + explanation summaries.
    };
    ```
 
-   UI example:
+   Display in a table or cards:
 
    * Networking:
 
-     * VPC basics – 85 (Strong)
-     * VPC endpoints gateway vs interface – 41 (Weak, red badge)
+     * VPC basics – Mastery 85, Priority 20
+     * VPC endpoints gateway vs interface – Mastery 41, Priority 82 (flag as weak)
    * Storage:
 
-     * S3 basics – 78
-     * S3 Object Lock vs Glacier – 35 (Weak, red)
+     * S3 basics – Mastery 78, Priority 30
+     * S3 Object Lock vs Glacier – Mastery 35, Priority 90 (weak)
 
-3. **Filters**
+3. **Filters and Sorting**
 
-   * “Show only weak (< 60)”
-   * “Show only concepts with help requests”
-   * “Sort by priority / name / domain”
+   Controls:
 
-4. **Concept Details Panel (on click)**
+   * Filter: “Only show weak (< 60 mastery)”
+   * Filter: “Only concepts with help requests”
+   * Sort: “By priority”, “By name”, “By domain”
 
-   When user clicks a concept:
+4. **Concept Details Panel**
+
+   On click:
 
    * Show:
 
-     * Name + domain
-
-     * Latest summarised explanation (you can reuse the canonical concept description from your static KB)
-
-     * The last 3–5 **sticky rules** that mention this concept (from UC6).
-
-     * A list of their **worst questions**, each entry:
+     * Concept name, domain, AWS service.
+     * Canonical description from static concept KB.
+     * Recent sticky rules from `ExplanationSummaries` associated with this concept.
+     * List of “tricky” questions for this concept:
 
        ```ts
        type QuestionSnippet = {
          questionId: string;
-         shortStem: string;      // first 80 chars
-         isCorrect: boolean;
+         shortStem: string;      // first ~80 chars from QuestionMeta.stemText
+         isCorrect: boolean;     // result of last attempt
          lastAttemptAt: number;
          confidence: "sure" | "unsure" | "guess" | null;
          attemptsCount: number;
        };
        ```
 
-     * “Open in Udemy” button if you can reconstruct a URL or at least search string.
+   * Provide a button:
 
-5. **Primary Call-to-Action**
+     * “Review this concept now” → UC9 with this concept pre-selected.
 
-   * Button: **“Start targeted review on weak concepts”** → UC9.
+5. **Actions**
+
+   * “Start targeted review on weak concepts” → UC9 (auto-select top N concepts by priorityScore).
+   * “Export snapshot” (optional, for sharing with coach).
 
 ---
 
 # UC9 – Targeted Review Sessions (Guided Practice)
 
-**Priority:** P5 (top of the pyramid – uses everything)
-**Depends on:** UC7, UC8, UC6, UC3
+**Priority:** P5 (top-level training feature)
+**Depends on:** UC7, UC8, UC5, UC6, UC3
 
 ### Goal
 
-Turn all the logged information into **short, focused review sessions** that attack the user’s weakest concepts with minimal cognitive noise.
+Use stored data to create **short, focused review sessions** that attack the user’s weakest concepts with minimal noise:
+
+* Use worst questions first.
+* Show simplified stems, compressed explanations, and sticky rules.
+* Track whether the user remembers the concepts now.
 
 ### Trigger
 
 * User clicks:
 
-  * “Start review session” from the dashboard.
-  * Or “Review this concept” from a concept detail panel.
+  * “Start review session” in the dashboard, or
+  * “Review this concept” from a concept detail panel.
 
-### Session Config
+### Session Configuration
 
-Modal (in popup or dashboard):
+Small modal:
 
-* “What do you want to review?”
+* **Scope**:
 
   * Option A: “My weakest concepts (auto-picked)”
-  * Option B: “This concept only” (if launched from concept details)
+  * Option B: “Selected concept only”
+* **Size**:
 
-* “How many questions?”
+  * 5 / 10 / 15 questions, or
+  * “15 minutes” (approximate by, say, 1–2 minutes per question)
 
-  * 5 / 10 / 15 or “15 min session”
+### Question Selection Logic
 
-### Selection Logic
+Given the chosen scope:
 
-Given configuration:
+1. Identify conceptIds to review:
 
-1. Build a **question pool**:
+   * If “weakest concepts”: pick top K concepts sorted by `priorityScore`.
+   * If “this concept only”: just that `conceptId`.
 
-   * For selected concepts (most likely those with `priorityScore > threshold`).
-   * All `QuestionAttempt`s for those concepts, sorted by:
+2. Build a pool of candidate questions:
 
-     * Wrong answers first.
-     * Then guessed.
-     * Then unsure.
-     * Then correct-but-help-requested.
+   * All questions (`questionId`s) tagged with those concepts (`QuestionConcepts`).
+   * For each question:
 
-2. Avoid very old or rarely seen questions unless needed.
+     * Compute difficulty signals from `QuestionAttempts`:
 
-3. Choose N questions for the session.
+       * Last result (correct/wrong).
+       * Count of wrong answers.
+       * Count of guesses.
+       * Count of help requests (from `ConceptHelpEvents`).
+   * Sort pool:
+
+     * Wrong > guessed > unsure > correct-but-help-requested > correct-sure.
+
+3. Choose N questions for the session (without replacement).
 
 ### Session Flow (Per Question)
 
-There are two options for UX:
+For v1, use a **standalone session UI** in your dashboard (no Udemy navigation required):
 
-#### Option 1 – Overlay On Udemy
+1. Display from stored data:
 
-* Open the corresponding Udemy question in a new tab (or reuse existing tab).
-* Overlay your own panel with:
+   * `QuestionMeta.stemText`
+   * `QuestionMeta.choices`
+   * Optional: UC5 simplified scenario above the question.
+   * Optional: ask user to answer again within your UI (not graded by Udemy).
 
-  1. A **prompt**: “Before seeing the options, can you recall the core idea?” (optional)
-  2. Buttons:
+2. Ask self-reported recall:
 
-     * “I remember clearly”
-     * “I’m fuzzy”
-     * “I don’t remember at all”
-  3. After they answer, show:
+   ```html
+   <div class="cz-review-recall">
+     <span>How well do you remember this concept?</span>
+     <button data-recall="remembered">I remember clearly</button>
+     <button data-recall="fuzzy">I'm fuzzy</button>
+     <button data-recall="dont_remember">I don't remember</button>
+   </div>
+   ```
 
-     * Simplified stem (UC5).
-     * UC6 compressed explanation.
-     * Sticky rule.
-  4. Ask:
+3. After recall answer:
 
-     * “Do you feel you now understand this concept?” (Yes/No)
+   * Show UC6 compressed explanation and sticky rule if available.
+   * Optionally ask: “Now, how confident do you feel?” (same three levels as UC2).
 
-       * If No → mark another `helpRequest`-like signal.
+4. Persist `ReviewInteraction`:
 
-#### Option 2 – Standalone Session UI
+   ```ts
+   const interaction: ReviewInteraction = {
+     id: generateUuid(),
+     questionId,
+     conceptIds, // from QuestionConcepts
+     timestamp: Date.now(),
+     selfReportedRecall,          // "remembered" | "fuzzy" | "dont_remember"
+     postReviewConfidence         // "sure" | "unsure" | "guess" | null
+   };
+   ```
 
-* Render the stem + answer choices directly in your dashboard session page (using stored text).
-* Ask user to pick the answer again and see if they’re now correct.
-* Then show UC6 explanation.
+   Insert into `ReviewInteractions`.
 
-You can start with **Option 2** since it doesn’t depend on Udemy navigation.
+5. Update ConceptStats:
 
-### Updating Stats
+   * If concept initially had low mastery and user now reports “remembered” and higher confidence, you can slightly bump masteryScore (or reduce priorityScore) using a small heuristic (e.g. “soft success” bump).
 
-During the session:
+### Optional UX: Udemy Overlay Mode
 
-* For each review interaction, create a pseudo-attempt:
+Later, you could:
 
-  ```ts
-  type ReviewInteraction = {
-    id: string;
-    questionId: string;
-    conceptIds: string[];
-    timestamp: number;
-    selfReportedRecall: "remembered" | "fuzzy" | "dont_remember";
-    postReviewConfidence: "sure" | "unsure" | "guess" | null;
-  };
-  ```
+* Open the actual Udemy question in a new tab or window.
+* Overlay your panel on top.
+* Let user re-answer in Udemy UI and then attach session metadata.
 
-* Use this to **boost masteryScore** slightly if:
-
-  * User initially had low mastery,
-  * And now reports “remembered” or shows correct recall.
+But standalone dashboard mode is easier for v1 and avoids URL gymnastics.
 
 ---
 
-# (Optional) UC10 – Read-Aloud / Focus Mode (TTS)
+# UC10 (Optional) – Read-Aloud / Focus Mode (TTS)
 
-**Priority:** Optional / low impact relative to above
-**Depends on:** none
+**Priority:** Optional (polish)
+**Depends on:** none (separate from the analytics)
 
-* Keep your current Google TTS integration as a **Focus Mode**:
+### Goal
 
-  * A simple toggle in popup: “Read questions aloud”.
-  * When on, `Play Q + answers` button uses your Google TTS (no word syncing guaranteed).
-* This remains a **nice-to-have** but not core for passing the exam.
+Provide a simple **Focus Mode** where the extension reads the question and answers aloud using TTS, helping with concentration and fatigue.
+
+### Behavior
+
+* A toggle in the popup: “Read questions aloud”.
+
+* When enabled:
+
+  * For each visible question, show:
+
+    ```html
+    <button class="cz-tts-play">Play Q + answers</button>
+    ```
+
+  * When clicked:
+
+    * Build a string from `QuestionMeta.stemText` and choices.
+    * Call your TTS backend (Google, other).
+    * Play audio; allow pause/stop.
+
+* No need for word-by-word highlighting or sync in v1.
+
+### Relation to Other UCs
+
+* Independent of the mastery model.
+* Can be used in timed, practice, and review modes without affecting analytics.
+* UC1-A/UC1-B still run normally.
 
 ---
 
@@ -1035,32 +1712,32 @@ During the session:
 
 **P1 – Core Logging & Confidence**
 
-1. **UC1** – Question Attempt Capture (hard dependency for everything).
-2. **UC2** – Confidence Capture.
+1. **UC1-A** – Question Attempt Capture (live).
+2. **UC1-B** – Historical Attempt Import from Review (backfill).
+3. **UC2** – Confidence Capture.
 
 **P2 – Concept Understanding Hooks**
 
-3. **UC4** – Concept Extraction & Tagging.
-4. **UC3** – Highlight-to-Explain Now.
+4. **UC4** – Concept Extraction & Tagging.
+5. **UC3** – Highlight-to-Explain Now.
 
 **P3 – Per-Question Cognitive Help**
 
-5. **UC5** – Stem Simplification & Keyword Highlight.
-6. **UC6** – Explanation Compression & Rule Extraction.
+6. **UC5** – Stem Simplification & Keyword Highlight.
+7. **UC6** – Explanation Compression & Rule Extraction.
 
 **P4 – Intelligence Layer**
 
-7. **UC7** – Weakness Model & Mastery Scores.
+8. **UC7** – Weakness Model & Mastery Scores.
 
 **P4.5 – Insight UI**
 
-8. **UC8** – Weakness Dashboard & Concept Graph.
+9. **UC8** – Weakness Dashboard & Concept Graph.
 
 **P5 – Active Training**
 
-9. **UC9** – Targeted Review Sessions.
+10. **UC9** – Targeted Review Sessions.
 
 **Optional**
 
-10. **UC10** – TTS Focus Mode (polish only).
-
+11. **UC10** – TTS Focus Mode (polish only).
