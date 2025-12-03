@@ -72,8 +72,7 @@
     });
 
     return (
-      questionText +
-      (answers.length ? "\n\n" + answers.join("\n") : "")
+      questionText + (answers.length ? "\n\n" + answers.join("\n") : "")
     );
   }
 
@@ -213,6 +212,7 @@
           <button type="button" class="cz-tts-btn" data-action="play-question">▶ Play Q + answers</button>
           <button type="button" class="cz-tts-btn" data-action="play-selection">▶ Play selection</button>
           <button type="button" class="cz-tts-btn" data-action="stop" disabled>⏹ Stop</button>
+          <button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">▾ Hide all</button>
         </div>
         <div class="cz-tts-status">
           Ready. Use “Play Q + answers” or select some text and use “Play selection”.

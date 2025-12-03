@@ -26,6 +26,11 @@
     }
   };
 
+  // Global collapse state (shared by all cards on the page)
+  const collapseState = {
+    collapsed: false
+  };
+
   const GOOGLE_TTS_MAX_BYTES = 4800;
 
   function log(...args) {
@@ -46,7 +51,10 @@
     }
     chrome.storage.sync.get(["czGoogleTtsKey"], (res) => {
       state.googleApiKey = (res.czGoogleTtsKey || "").trim();
-      log("Loaded Google TTS key from storage:", state.googleApiKey ? "present" : "empty");
+      log(
+        "Loaded Google TTS key from storage:",
+        state.googleApiKey ? "present" : "empty"
+      );
       chooseInitialMode(true);
     });
   }
@@ -87,7 +95,9 @@
       log("Using Google Cloud TTS (no local voices).");
     } else {
       state.ttsMode = "none";
-      setStatus("No system voices available and no Google TTS key configured. The reader cannot speak.");
+      setStatus(
+        "No system voices available and no Google TTS key configured. The reader cannot speak."
+      );
     }
   }
 
@@ -135,6 +145,27 @@
       } else if (action === "stop") {
         // Stop only enabled when something is playing/paused
         btn.disabled = !sessionActive;
+      } else if (action === "toggle-collapse") {
+        // Collapse button label reflects global collapse state
+        btn.textContent = collapseState.collapsed ? "▸ Show all" : "▾ Hide all";
+      }
+    });
+  }
+
+  function applyCollapseStateToAllWrappers() {
+    const wrappers = document.querySelectorAll(".cz-tts-wrapper");
+    wrappers.forEach((el) => {
+      if (collapseState.collapsed) {
+        el.classList.add("cz-tts-collapsed");
+      } else {
+        el.classList.remove("cz-tts-collapsed");
+      }
+      // Update the label of any collapse button inside this wrapper
+      const btn = el.querySelector(
+        "button.cz-tts-btn[data-action='toggle-collapse']"
+      );
+      if (btn) {
+        btn.textContent = collapseState.collapsed ? "▸ Show all" : "▾ Hide all";
       }
     });
   }
@@ -147,10 +178,22 @@
     const statusEl = wrapper.querySelector(".cz-tts-status");
     if (!toolbar || !statusEl) return;
 
+    // Apply current global collapse state when mounting
+    if (collapseState.collapsed) {
+      wrapper.classList.add("cz-tts-collapsed");
+    }
+
     toolbar.addEventListener("click", (evt) => {
       const btn = evt.target.closest("button.cz-tts-btn");
       if (!btn) return;
       const action = btn.dataset.action;
+
+      // Collapse/expand all cards globally
+      if (action === "toggle-collapse") {
+        collapseState.collapsed = !collapseState.collapsed;
+        applyCollapseStateToAllWrappers();
+        return;
+      }
 
       state.activeCard = { wrapper, statusEl, config };
 
@@ -161,6 +204,14 @@
         stop();
       }
     });
+
+    // Ensure collapse button label is correct on initial mount
+    const collapseBtn = toolbar.querySelector(
+      "button.cz-tts-btn[data-action='toggle-collapse']"
+    );
+    if (collapseBtn) {
+      collapseBtn.textContent = collapseState.collapsed ? "▸ Show all" : "▾ Hide all";
+    }
   }
 
   function handlePlayButtonClick(action) {
@@ -183,7 +234,9 @@
     if (action === "play-selection") {
       const selText = extractSelectedText();
       if (!selText) {
-        setStatus("No text selected. Select part of the question/explanation first.");
+        setStatus(
+          "No text selected. Select part of the question/explanation first."
+        );
         return;
       }
       state.currentAction = action;
@@ -266,8 +319,16 @@
     const estimatedSeconds = combinedLength / 13;
     const intervalMs = (estimatedSeconds * 1000) / wordCount;
 
-    state.highlight.intervalMs = Math.min(600, Math.max(120, Math.round(intervalMs)));
-    log("Highlight words prepared:", wordCount, "combined length:", combinedLength);
+    state.highlight.intervalMs = Math.min(
+      600,
+      Math.max(120, Math.round(intervalMs))
+    );
+    log(
+      "Highlight words prepared:",
+      wordCount,
+      "combined length:",
+      combinedLength
+    );
   }
 
   function wrapTextNodes(root) {
@@ -308,7 +369,9 @@
   }
 
   function clearHighlight() {
-    state.highlight.words.forEach((w) => w.classList.remove("cz-tts-word-current"));
+    state.highlight.words.forEach((w) =>
+      w.classList.remove("cz-tts-word-current")
+    );
   }
 
   function stopHighlightTimer(resetIndex = true) {
@@ -367,7 +430,9 @@
     state.currentText = cleaned;
     chooseInitialMode(true);
     if (state.ttsMode === "none") {
-      setStatus("No system voices available and no Google TTS key configured. The reader cannot speak.");
+      setStatus(
+        "No system voices available and no Google TTS key configured. The reader cannot speak."
+      );
       updateToolbarButtonsForActiveCard();
       return;
     }
@@ -466,7 +531,9 @@
       return;
     }
     if (!state.hasWebVoices) {
-      setStatus("No system voices available for text-to-speech (Web Speech API).");
+      setStatus(
+        "No system voices available for text-to-speech (Web Speech API)."
+      );
       updateToolbarButtonsForActiveCard();
       return;
     }
@@ -497,7 +564,9 @@
       state.isPaused = false;
       state.currentAction = null;
       stopHighlightTimer(true);
-      setStatus("Speech error (Web Speech). Falling back to Google TTS if available.");
+      setStatus(
+        "Speech error (Web Speech). Falling back to Google TTS if available."
+      );
       updateToolbarButtonsForActiveCard();
 
       if (state.googleApiKey) {
@@ -544,7 +613,9 @@
 
   async function speakWithGoogleTTS(text) {
     if (!state.googleApiKey) {
-      setStatus("Google TTS not configured. Please set your API key in the popup.");
+      setStatus(
+        "Google TTS not configured. Please set your API key in the popup."
+      );
       updateToolbarButtonsForActiveCard();
       return;
     }
@@ -560,7 +631,12 @@
       return;
     }
 
-    log("Sending text to Google TTS in", chunks.length, "chunk(s). Total length:", text.length);
+    log(
+      "Sending text to Google TTS in",
+      chunks.length,
+      "chunk(s). Total length:",
+      text.length
+    );
 
     state.isPlaying = true;
     state.isPaused = false;
@@ -568,7 +644,7 @@
 
     let chunkIndex = 0;
     let highlightStarted = false;
-    let highlightIntervalLocked = false;
+       let highlightIntervalLocked = false;
 
     const playNextChunk = async () => {
       if (!state.isPlaying) return;
@@ -614,7 +690,14 @@
 
         if (!resp.ok) {
           const bodyText = await resp.text().catch(() => "");
-          throw new Error("HTTP " + resp.status + " " + resp.statusText + " – " + bodyText);
+          throw new Error(
+            "HTTP " +
+              resp.status +
+              " " +
+              resp.statusText +
+              " – " +
+              bodyText
+          );
         }
 
         const data = await resp.json();

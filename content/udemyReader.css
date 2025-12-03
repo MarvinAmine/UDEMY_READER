@@ -19,6 +19,12 @@
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
+/* Collapsed state: hide status + analysis, keep toolbar visible */
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-status,
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-analysis {
+  display: none;
+}
+
 /* Toolbar */
 
 .cz-tts-toolbar {
@@ -44,6 +50,11 @@
 
 .cz-tts-btn:hover {
   background: #f1f5f9;
+}
+
+/* Optional: visually push collapse toggle to the right */
+.cz-tts-collapse-toggle {
+  margin-left: auto;
 }
 
 .cz-tts-status {

@@ -11,8 +11,7 @@
     ".result-pane--question-result-pane-wrapper--2bGiz";
   // Inline per-question result (after validating a single practice question)
   // uses this container.
-  const INLINE_RESULT_SELECTOR =
-    ".question-result--question-result--LWiOB";
+  const INLINE_RESULT_SELECTOR = ".question-result--question-result--LWiOB";
 
   function findPromptEl(block) {
     if (!block) return null;
@@ -56,8 +55,7 @@
     });
 
     return (
-      questionText +
-      (answers.length ? "\n\n" + answers.join("\n") : "")
+      questionText + (answers.length ? "\n\n" + answers.join("\n") : "")
     );
   }
 
@@ -182,6 +180,9 @@
         <button type="button" class="cz-tts-btn" data-action="stop" disabled>
           ⏹ Stop
         </button>
+        <button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">
+          ▾ Hide all
+        </button>
       </div>
       <div class="cz-tts-status">
         Ready. Use “Play Q + answers” or select some text and use “Play selection”.
@@ -203,8 +204,7 @@
     promptEl.insertAdjacentElement("afterend", wrapper);
     block.dataset.czTtsInjected = "1";
 
-    const quizFeature =
-      window.czFeatures && window.czFeatures.quizReader;
+    const quizFeature = window.czFeatures && window.czFeatures.quizReader;
     const insightFeature =
       window.czFeatures && window.czFeatures.questionInsight;
 
@@ -228,7 +228,9 @@
     });
 
     if (!insightFeature) {
-      log("questionInsight feature missing – did questionInsightFeature.js load?");
+      log(
+        "questionInsight feature missing – did questionInsightFeature.js load?"
+      );
       return;
     }
 
@@ -241,7 +243,9 @@
     // Try to restore cached analysis (from practice mode or previous views)
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
-    log("Injected Quiz Reader + Question Insight card into review question block.");
+    log(
+      "Injected Quiz Reader + Question Insight card into review question block."
+    );
   }
 
   function scanAndInjectAll() {
