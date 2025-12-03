@@ -1,16 +1,15 @@
-// content/locations/practiceMode.js
-// Attach Quiz Reader + Question Insight in Practice/Test mode
-// (1 question per page)
+// /src/adapters/practice.js
+// Attach Quiz Reader + Question Insight in Practice/Test mode (1 question per page)
 
 (function () {
-  if (!window.czFeatures) window.czFeatures = {};
+  if (!window) return;
+  if (!window.czLocations) window.czLocations = {};
+  if (window.czLocations.practiceMode) return;
+
+  const log = (window.czCore && window.czCore.log) || (() => {});
 
   const QUIZ_FORM_SELECTOR =
     'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]';
-
-  function log(...args) {
-    console.log("[UdemyReader][PracticeMode]", ...args);
-  }
 
   function getQuestionForm() {
     return document.querySelector(QUIZ_FORM_SELECTOR);
@@ -24,22 +23,11 @@
     try {
       return fn ? fn() : "";
     } catch (e) {
-      log("config fn error", e);
+      log("PracticeMode", "config fn error", e);
       return "";
     }
   }
 
-  /**
-   * In practice mode, Udemy typically renders the stem as:
-   *
-   * <div class="mc-quiz-question--question-prompt--...">
-   *   <div class="question-result--question-title--...">Question 8:</div>
-   *   <div id="question-prompt" class="ud-text-md rt-scaffolding">[...]</div>
-   * </div>
-   *
-   * To ensure the SAME canonical text as the review/result view,
-   * we always prefer #question-prompt (stem only, without "Question 8:").
-   */
   function findPromptElPractice(form) {
     if (!form) return null;
     return (
@@ -48,11 +36,6 @@
     );
   }
 
-  /**
-   * Build a canonical "question + answers" text for:
-   *  - TTS
-   *  - Analysis cache key (must match reviewMode.js)
-   */
   function extractPracticeQuestionText() {
     const form = getQuestionForm();
     if (!form) return "";
@@ -94,7 +77,7 @@
 
   function getQuestionIdPractice() {
     const form = getQuestionForm();
-    return form?.dataset?.questionId || null;
+    return (form && form.dataset && form.dataset.questionId) || null;
   }
 
   function getOptionLettersPractice() {
@@ -108,8 +91,6 @@
     );
   }
 
-  // Reset the visible text for status + analysis back to default
-  // when a new question appears in the same form.
   function resetAnalysis(wrapper) {
     const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
     if (analysisBody) {
@@ -124,10 +105,6 @@
     }
   }
 
-  // Ask the background script if we already have a cached analysis
-  // for this question (by questionId + canonical text). If yes,
-  // re-render it into the current Question Insight body so that
-  // previously fetched insight stays visible when you come back.
   function restoreCachedInsightIfAny(wrapper, insightConfig) {
     if (!chrome?.runtime?.sendMessage) return;
 
@@ -150,7 +127,8 @@
         (resp) => {
           if (!resp || !resp.ok || !resp.analysis) return;
 
-          const insightFeature = window.czFeatures.questionInsight;
+          const insightFeature =
+            window.czFeatures && window.czFeatures.questionInsight;
           if (
             !insightFeature ||
             typeof insightFeature.applyAnalysisToBody !== "function"
@@ -166,27 +144,25 @@
         }
       );
     } catch (e) {
-      log("restoreCachedInsightIfAny error", e);
+      log("PracticeMode", "restoreCachedInsightIfAny error", e);
     }
   }
 
-  // Ensure that the Quiz Reader + Question Insight card
-  // is present and bound to the *current* question ID.
-  // If Udemy reuses the same <form> across questions, we detect the
-  // questionId change and reset + restore from cache per question.
   function syncCardToCurrentQuestion() {
     const form = getQuestionForm();
     if (!form) return;
 
-    const quizFeature = window.czFeatures.quizReader;
-    const insightFeature = window.czFeatures.questionInsight;
+    const quizFeature =
+      window.czFeatures && window.czFeatures.quizReader;
+    const insightFeature =
+      window.czFeatures && window.czFeatures.questionInsight;
 
     if (!quizFeature) {
-      log("quizReader feature missing – did quizReaderFeature.js load?");
+      log("PracticeMode", "quizReader feature missing");
       return;
     }
     if (!insightFeature) {
-      log("questionInsight feature missing – did questionInsightFeature.js load?");
+      log("PracticeMode", "questionInsight feature missing");
       return;
     }
 
@@ -196,7 +172,7 @@
       getOptionLetters: getOptionLettersPractice
     };
 
-    const currentId = form.dataset?.questionId || "";
+    const currentId = (form.dataset && form.dataset.questionId) || "";
 
     let wrapper = form.querySelector(".cz-tts-wrapper");
     let isNewWrapper = false;
@@ -235,13 +211,11 @@
         form.appendChild(wrapper);
       }
 
-      // Mount Quiz Reader (TTS)
       quizFeature.mount(wrapper, {
         getText: extractPracticeQuestionText,
         getHighlightRoots: getHighlightRootsPractice
       });
 
-      // Mount Question Insight (analysis)
       const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
       insightFeature.mount(analysisRoot, insightConfig);
 
@@ -250,14 +224,10 @@
 
     const knownId = wrapper.dataset.czQuestionId || "";
 
-    // New question, or first time we bind this wrapper to a question.
     if (isNewWrapper || knownId !== currentId) {
       wrapper.dataset.czQuestionId = currentId || "";
 
-      // Clear stale analysis from another question
       resetAnalysis(wrapper);
-
-      // If we previously analyzed this question, restore it from cache.
       restoreCachedInsightIfAny(wrapper, insightConfig);
     }
   }
@@ -273,7 +243,10 @@
     obs.observe(target, { childList: true, subtree: true });
   }
 
-  // Initial run
   syncCardToCurrentQuestion();
   setupObserver();
+
+  window.czLocations.practiceMode = {
+    resync: syncCardToCurrentQuestion
+  };
 })();
