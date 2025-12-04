@@ -7,6 +7,7 @@
   if (window.czLocations.practiceMode) return;
 
   const log = (window.czCore && window.czCore.log) || (() => {});
+  const hashString = (window.czCore && window.czCore.hashString) || null;
 
   const QUIZ_FORM_SELECTOR =
     'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]';
@@ -75,9 +76,32 @@
     return roots;
   }
 
+  function computeQuestionHashFromPracticeForm(form) {
+    if (!form) return "";
+    const promptEl = findPromptElPractice(form);
+    const stemText = promptEl
+      ? normalizeWhitespace(promptEl.innerText || "")
+      : "";
+    const answerEls = form.querySelectorAll(
+      ".mc-quiz-answer--answer-body--V-o8d"
+    );
+    const choiceTexts = Array.from(answerEls).map((el) =>
+      normalizeWhitespace(el.innerText || "")
+    );
+    const rawKey = stemText + "||" + choiceTexts.join("||");
+    return hashString ? hashString(rawKey) : rawKey;
+  }
+
   function getQuestionIdPractice() {
     const form = getQuestionForm();
-    return (form && form.dataset && form.dataset.questionId) || null;
+    if (!form) return null;
+
+    const nativeId =
+      (form && form.dataset && form.dataset.questionId) || null;
+    if (nativeId) return nativeId;
+
+    // CU1 shared: stable fallback id when Udemy doesn't expose an id
+    return computeQuestionHashFromPracticeForm(form) || null;
   }
 
   function getOptionLettersPractice() {
@@ -174,7 +198,7 @@
       mode: "practice"
     };
 
-    const currentId = (form.dataset && form.dataset.questionId) || "";
+    const currentId = getQuestionIdPractice() || "";
 
     let wrapper = form.querySelector(".cz-tts-wrapper");
     let isNewWrapper = false;
