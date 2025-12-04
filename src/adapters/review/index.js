@@ -1,99 +1,69 @@
-// /src/adapters/review.js
-// Review mode adapter (full review pages + inline result)
+// src/adapters/review/index.js
+// Review mode adapter: mounts Quiz Reader + Question Insight and triggers UC1-B import
 
 (function () {
-  if (!window) return;
+  if (typeof window === "undefined") return;
   if (!window.czLocations) window.czLocations = {};
   if (window.czLocations.reviewMode) return;
 
   const log = (window.czCore && window.czCore.log) || (() => {});
 
+  const dom =
+    (window.czAdapters && window.czAdapters.reviewDom) || {};
+  const questionHelpers =
+    (window.czAdapters && window.czAdapters.reviewQuestionId) || {};
+  const importHelpers =
+    (window.czAdapters && window.czAdapters.reviewImport) || {};
+
   const REVIEW_BLOCK_SELECTOR =
+    dom.REVIEW_BLOCK_SELECTOR ||
     ".result-pane--question-result-pane-wrapper--2bGiz";
   const INLINE_RESULT_SELECTOR =
+    dom.INLINE_RESULT_SELECTOR ||
     ".question-result--question-result--LWiOB";
 
-  function normalizeWhitespace(text) {
-    return (text || "").replace(/\s+/g, " ").trim();
+  function getReviewQuestionId(block) {
+    if (questionHelpers.getReviewQuestionId) {
+      return questionHelpers.getReviewQuestionId(block);
+    }
+    return null;
+  }
+
+  function getQuestionText(block) {
+    if (dom.extractReviewQuestionStemAndAnswers) {
+      return dom.extractReviewQuestionStemAndAnswers(block);
+    }
+    return "";
+  }
+
+  function getQuestionTextWithExplanation(block) {
+    if (dom.extractReviewExplanation) {
+      return dom.extractReviewExplanation(block);
+    }
+    return getQuestionText(block);
+  }
+
+  function getHighlightRoots(block, action) {
+    if (dom.getHighlightRootsReview) {
+      return dom.getHighlightRootsReview(block, action);
+    }
+    return [];
+  }
+
+  function getOptionLetters(block) {
+    if (dom.getOptionLettersReview) {
+      return dom.getOptionLettersReview(block);
+    }
+    return [];
   }
 
   function findPromptEl(block) {
+    if (dom.findPromptEl) return dom.findPromptEl(block);
     if (!block) return null;
     return (
       block.querySelector("#question-prompt") ||
       block.querySelector(".result-pane--question-format--PBvdY")
     );
-  }
-
-  function extractReviewQuestionStemAndAnswers(block) {
-    if (!block) return "";
-
-    const promptEl = findPromptEl(block);
-    const questionText = promptEl
-      ? normalizeWhitespace(promptEl.innerText || "")
-      : "";
-
-    const answerBodies = block.querySelectorAll(
-      ".answer-result-pane--answer-body--cDGY6"
-    );
-
-    const answers = Array.from(answerBodies).map((bodyEl, idx) => {
-      const label = String.fromCharCode(65 + idx);
-      const text = normalizeWhitespace(bodyEl.innerText || "");
-      return `${label}. ${text}`;
-    });
-
-    return (
-      questionText + (answers.length ? "\n\n" + answers.join("\n") : "")
-    );
-  }
-
-  function extractReviewExplanation(block) {
-    if (!block) return "";
-    const overallExplanation = block.querySelector("#overall-explanation");
-    if (!overallExplanation) return "";
-    return normalizeWhitespace(overallExplanation.innerText || "");
-  }
-
-  function getOptionLettersReview(block) {
-    if (!block) return [];
-    const answerBodies = block.querySelectorAll(
-      ".answer-result-pane--answer-body--cDGY6"
-    );
-    return Array.from(answerBodies).map((_, idx) =>
-      String.fromCharCode(65 + idx)
-    );
-  }
-
-  function getHighlightRootsReview(block, action) {
-    if (!block) return [];
-    const roots = [];
-
-    const promptEl = findPromptEl(block);
-    const answerBodies = block.querySelectorAll(
-      ".answer-result-pane--answer-body--cDGY6"
-    );
-    const overallExplanation = block.querySelector("#overall-explanation");
-
-    if (!action || action === "play-question") {
-      if (promptEl) roots.push(promptEl);
-      answerBodies.forEach((el) => roots.push(el));
-      return roots;
-    }
-
-    if (action === "play-question-expl") {
-      if (overallExplanation) roots.push(overallExplanation);
-      return roots;
-    }
-
-    if (action === "play-selection") {
-      return [];
-    }
-
-    if (promptEl) roots.push(promptEl);
-    answerBodies.forEach((el) => roots.push(el));
-    if (overallExplanation) roots.push(overallExplanation);
-    return roots;
   }
 
   function restoreCachedInsightForBlock(block, wrapper, insightConfig) {
@@ -106,14 +76,16 @@
       ? insightConfig.getQuestionText()
       : "";
     const text = (textRaw || "").trim();
-    if (!text) return;
+    const questionId = getReviewQuestionId(block) || null;
+
+    if (!text && !questionId) return;
 
     try {
       chrome.runtime.sendMessage(
         {
           type: "CZ_GET_CACHED_ANALYSIS",
           text,
-          questionId: null
+          questionId
         },
         (resp) => {
           if (!resp || !resp.ok || !resp.analysis) return;
@@ -196,16 +168,18 @@
     }
 
     const insightConfig = {
-      getQuestionText: () => extractReviewQuestionStemAndAnswers(block),
-      getOptionLetters: () => getOptionLettersReview(block),
-      // CU1-A: mark this source as coming from review mode
+      getQuestionText: () => getQuestionText(block),
+      getOptionLetters: () => getOptionLetters(block),
+      getQuestionId: () => getReviewQuestionId(block),
       mode: "review"
     };
 
     quizFeature.mount(wrapper, {
-      getText: () => extractReviewQuestionStemAndAnswers(block),
-      getTextWithExplanation: () => extractReviewExplanation(block),
-      getHighlightRoots: (action) => getHighlightRootsReview(block, action)
+      getText: () => getQuestionText(block),
+      getTextWithExplanation: () =>
+        getQuestionTextWithExplanation(block),
+      getHighlightRoots: (action) =>
+        getHighlightRoots(block, action)
     });
 
     if (!insightFeature) {
@@ -220,7 +194,10 @@
 
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
-    log("ReviewMode", "Injected Quiz Reader + Question Insight into review block");
+    log(
+      "ReviewMode",
+      "Injected Quiz Reader + Question Insight into review block"
+    );
   }
 
   function scanAndInjectAll() {
@@ -229,6 +206,15 @@
       blocks = document.querySelectorAll(INLINE_RESULT_SELECTOR);
     }
     if (!blocks.length) return;
+
+    if (typeof importHelpers.ensureReviewImportOnce === "function") {
+      importHelpers.ensureReviewImportOnce();
+    } else {
+      log(
+        "ReviewMode",
+        "UC1-B import helper not available; skipping exam-level import."
+      );
+    }
 
     blocks.forEach(injectCardForBlock);
   }

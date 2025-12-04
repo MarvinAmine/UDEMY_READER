@@ -17,6 +17,7 @@
       "matches": ["https://www.udemy.com/*"],
       "js": [
         "src/core/logger.js",
+        "src/core/hash.js",
         "src/core/state.js",
         "src/core/storage.js",
         "src/core/message.js",
@@ -32,7 +33,10 @@
         "src/ui/wrapper.js",
 
         "src/adapters/practice.js",
-        "src/adapters/review.js",
+        "src/adapters/review/dom.js",
+        "src/adapters/review/questionId.js",
+        "src/adapters/review/importAttempt.js",
+        "src/adapters/review/index.js",
 
         "src/content.js"
       ],
