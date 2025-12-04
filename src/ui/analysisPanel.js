@@ -44,7 +44,8 @@
    * Persist per-question metadata + aggregated stats whenever
    * an analysis successfully completes.
    *
-   * - Stores aggregated counts in `czQuestionStats` (as before).
+   * - Stores tag counts and analysis-usage counters in `czQuestionStats`:
+   *   { tags: {tag: count}, analyzeInvocationCount, lastAnalyzedAt, ... }
    * - Stores rich question metadata in `czQuestionMeta`:
    *   { questionId, fullText, topicTags[], firstSeen, lastSeen,
    *     seenInModes: {mode: count}, sources: {source: count}, lastAnalysisAt }
@@ -75,7 +76,7 @@
         const meta = res.czQuestionMeta || {};
         const key = String(questionId);
 
-        // ---- Aggregated stats (existing behavior, extended slightly) ----
+        // ---- Aggregated stats for analysis usage (CU1-A) ----
         const existingStats = stats[key] || {
           attempts: 0,
           wrong: 0,
@@ -86,15 +87,25 @@
         existingStats.attempts = (existingStats.attempts || 0) + 1;
         existingStats.lastSeen = now;
 
+        // Shared with UC1-C: how often "Analyze question" was invoked.
+        existingStats.analyzeInvocationCount =
+          (existingStats.analyzeInvocationCount || 0) + 1;
+        existingStats.lastAnalyzedAt = now;
+
+        if (!existingStats.tags) {
+          existingStats.tags = {};
+        }
+
         tags.forEach((t) => {
           const tag = String(t || "").trim();
           if (!tag) return;
-          existingStats.tags[tag] = (existingStats.tags[tag] || 0) + 1;
+          existingStats.tags[tag] =
+            (existingStats.tags[tag] || 0) + 1;
         });
 
         stats[key] = existingStats;
 
-        // ---- Question metadata (new CU1-A behavior) ----
+        // ---- Question metadata (CU1-A) ----
         const existingMeta = meta[key] || null;
         const seenInModes = (existingMeta && existingMeta.seenInModes) || {};
         const sources = (existingMeta && existingMeta.sources) || {};
@@ -118,7 +129,9 @@
             []
               .concat(previousTags || [])
               .concat(
-                tags.map((t) => String(t || "").trim()).filter(Boolean)
+                tags
+                  .map((t) => String(t || "").trim())
+                  .filter(Boolean)
               )
           )
         );

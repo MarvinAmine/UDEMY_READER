@@ -1,16 +1,31 @@
 // /src/adapters/practice.js
-// Attach Quiz Reader + Question Insight in Practice/Test mode (1 question per page)
+// Practice/Test mode (1 question per page) adapter.
+//
+// - Mounts Quiz Reader + Question Insight on practice questions.
+// - Logs a QuestionAttempt to chrome.storage.local whenever the user clicks
+//   Udemy's "Check answer" button (data-purpose="check-answer").
+//
+// NOTE: Udemy replaces the <form> with a result view after clicking "Check answer".
+//       So we must build & log the attempt *before* the DOM is replaced.
 
 (function () {
-  if (!window) return;
+  if (typeof window === "undefined") return;
   if (!window.czLocations) window.czLocations = {};
   if (window.czLocations.practiceMode) return;
 
-  const log = (window.czCore && window.czCore.log) || (() => {});
-  const hashString = (window.czCore && window.czCore.hashString) || null;
+  const log =
+    (window.czCore && window.czCore.log) ||
+    function (...args) {
+      console.log("[UdemyReader][PracticeMode]", ...args);
+    };
 
+  const hashString = window.czCore && window.czCore.hashString;
+  const qsHelper = window.czCore && window.czCore.questionStats;
+
+  // Udemy practice question container
   const QUIZ_FORM_SELECTOR =
-    'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]';
+    'form.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"], ' +
+    'div.mc-quiz-question--container--dV-tK[data-testid="mc-quiz-question"]';
 
   function getQuestionForm() {
     return document.querySelector(QUIZ_FORM_SELECTOR);
@@ -24,13 +39,26 @@
     try {
       return fn ? fn() : "";
     } catch (e) {
-      log("PracticeMode", "config fn error", e);
+      log("config fn error", e);
       return "";
     }
   }
 
+  function generateUuid() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    // Fallback UUID v4
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
   function findPromptElPractice(form) {
     if (!form) return null;
+    // Matches your DOM: div#question-prompt.ud-text-bold.mc-quiz-question--question-prompt--9cMw2
     return (
       form.querySelector("#question-prompt") ||
       form.querySelector(".mc-quiz-question--question-prompt--9cMw2")
@@ -50,14 +78,12 @@
       ".mc-quiz-answer--answer-body--V-o8d"
     );
     const answers = Array.from(answerEls).map((el, idx) => {
-      const label = String.fromCharCode(65 + idx); // A, B, C, ...
+      const label = String.fromCharCode(65 + idx); // A, B, C...
       const text = normalizeWhitespace(el.innerText || "");
       return `${label}. ${text}`;
     });
 
-    return (
-      questionText + (answers.length ? "\n\n" + answers.join("\n") : "")
-    );
+    return questionText + (answers.length ? "\n\n" + answers.join("\n") : "");
   }
 
   function getHighlightRootsPractice() {
@@ -92,15 +118,15 @@
     return hashString ? hashString(rawKey) : rawKey;
   }
 
-  function getQuestionIdPractice() {
-    const form = getQuestionForm();
+  function getQuestionIdPractice(formOverride) {
+    const form = formOverride || getQuestionForm();
     if (!form) return null;
 
     const nativeId =
       (form && form.dataset && form.dataset.questionId) || null;
     if (nativeId) return nativeId;
 
-    // CU1 shared: stable fallback id when Udemy doesn't expose an id
+    // Fallback: hash of stem + choices
     return computeQuestionHashFromPracticeForm(form) || null;
   }
 
@@ -119,13 +145,13 @@
     const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
     if (analysisBody) {
       analysisBody.innerHTML =
-        "Click “Analyze question” to see a simplified stem, key triggers, and topic tags.";
+        'Click “Analyze question” to see a simplified stem, key triggers, and topic tags.';
     }
 
     const statusEl = wrapper.querySelector(".cz-tts-status");
     if (statusEl) {
       statusEl.textContent =
-        "Ready. Use “Play Q + answers” or select some text and use “Play selection”.";
+        'Ready. Use “Play Q + answers” or select some text and use “Play selection”.';
     }
   }
 
@@ -168,25 +194,210 @@
         }
       );
     } catch (e) {
-      log("PracticeMode", "restoreCachedInsightIfAny error", e);
+      log("restoreCachedInsightIfAny error", e);
     }
   }
 
+  // ---------------- Attempt snapshot + logging ----------------
+
+  /**
+   * Build a QuestionAttempt from the current practice form.
+   * This MUST be called *before* Udemy replaces the form with the result view.
+   */
+  function buildPracticeAttemptFromForm(formOverride) {
+    const form = formOverride || getQuestionForm();
+    if (!form) {
+      log("buildPracticeAttemptFromForm: no form");
+      return null;
+    }
+
+    const questionId = getQuestionIdPractice(form);
+    if (!questionId) {
+      log("buildPracticeAttemptFromForm: no questionId");
+      return null;
+    }
+
+    const promptEl = findPromptElPractice(form);
+    const stemText = promptEl
+      ? normalizeWhitespace(promptEl.innerText || "")
+      : "";
+
+    const answerBodies = form.querySelectorAll(
+      ".mc-quiz-answer--answer-body--V-o8d"
+    );
+    if (!answerBodies.length) {
+      log("buildPracticeAttemptFromForm: no answers");
+      return null;
+    }
+
+    const choices = [];
+    const chosenIndices = [];
+    const correctIndices = []; // we usually don't know this at click time
+
+    Array.from(answerBodies).forEach((bodyEl, idx) => {
+      const label = String.fromCharCode(65 + idx);
+      const text = normalizeWhitespace(bodyEl.innerText || "") || "";
+      choices.push({ index: idx, label, text });
+
+      const root =
+        bodyEl.closest("label") ||
+        bodyEl.closest("div") ||
+        bodyEl.parentElement;
+
+      let isChosen = false;
+      if (root) {
+        const input = root.querySelector(
+          'input[type="radio"], input[type="checkbox"]'
+        );
+        if (input && input.checked) {
+          isChosen = true;
+        }
+      }
+
+      if (isChosen) {
+        chosenIndices.push(idx);
+      }
+    });
+
+    // At click time we don't yet know if it is correct; keep it tri-state null.
+    const isCorrect = null;
+    const now = Date.now();
+
+    const attempt = {
+      attemptId: generateUuid(),
+      questionId,
+      examId: null, // practice mode, not tied to a specific exam
+      examTitle: null,
+      attemptOrdinal: null,
+      examAttemptKey: null,
+      mode: "practice",
+      source: "practice-check-answer",
+      timestamp: now,
+      stemText,
+      choices,
+      chosenIndices,
+      correctIndices,
+      isCorrect,
+      confidence: null
+    };
+
+    log("buildPracticeAttemptFromForm: snapshot", {
+      questionId,
+      chosenIndicesCount: chosenIndices.length
+    });
+
+    return attempt;
+  }
+
+  /**
+   * Persist the attempt snapshot into chrome.storage.local:
+   *   czQuestionAttempts[attemptId] = attempt
+   *   czQuestionStats updated via questionStats.applyAttemptToStats
+   */
+  function logPracticeAttemptSnapshot(attempt) {
+    if (!attempt) {
+      log("logPracticeAttemptSnapshot: no attempt provided");
+      return;
+    }
+    if (!chrome?.storage?.local) {
+      log(
+        "logPracticeAttemptSnapshot: chrome.storage.local not available",
+        attempt
+      );
+      return;
+    }
+
+    chrome.storage.local.get(
+      ["czQuestionAttempts", "czQuestionStats"],
+      (res) => {
+        const questionAttempts = res.czQuestionAttempts || {};
+        const questionStats = res.czQuestionStats || {};
+
+        questionAttempts[attempt.attemptId] = attempt;
+
+        let updatedStats = questionStats;
+        if (qsHelper && typeof qsHelper.applyAttemptToStats === "function") {
+          try {
+            updatedStats = qsHelper.applyAttemptToStats(
+              questionStats,
+              attempt
+            );
+          } catch (e) {
+            log("applyAttemptToStats error", e);
+          }
+        }
+
+        chrome.storage.local.set(
+          {
+            czQuestionAttempts: questionAttempts,
+            czQuestionStats: updatedStats
+          },
+          () => {
+            log(
+              "Logged practice attempt snapshot",
+              attempt.questionId,
+              "isCorrect=",
+              attempt.isCorrect
+            );
+          }
+        );
+      }
+    );
+  }
+
+  // ---------------- Hook the "Check answer" button ----------------
+
+  function getCheckAnswerButton() {
+    // Matches your footer:
+    // <button type="button" data-purpose="check-answer" ...>
+    return document.querySelector('button[data-purpose="check-answer"]');
+  }
+
+  function attachCheckAnswerListener() {
+    const btn = getCheckAnswerButton();
+    if (!btn) {
+      return; // no option selected yet -> button not present
+    }
+    if (btn.dataset.czTtsAttemptHooked === "1") {
+      return;
+    }
+    btn.dataset.czTtsAttemptHooked = "1";
+
+    log('attachCheckAnswerListener: hooked button[data-purpose="check-answer"]');
+
+    btn.addEventListener("click", () => {
+      // IMPORTANT: Udemy will replace the form with the result view immediately
+      // after this click. We must snapshot the attempt now.
+      const form = getQuestionForm();
+      const attempt = buildPracticeAttemptFromForm(form);
+      if (!attempt) {
+        log("click handler: no attempt snapshot built");
+        return;
+      }
+      logPracticeAttemptSnapshot(attempt);
+    });
+  }
+
+  // ---------------- Main UI wiring ----------------
+
   function syncCardToCurrentQuestion() {
     const form = getQuestionForm();
-    if (!form) return;
+    if (!form) {
+      return;
+    }
 
-    const quizFeature =
-      window.czFeatures && window.czFeatures.quizReader;
+    const quizFeature = window.czFeatures && window.czFeatures.quizReader;
     const insightFeature =
       window.czFeatures && window.czFeatures.questionInsight;
 
-    if (!quizFeature) {
-      log("PracticeMode", "quizReader feature missing");
-      return;
-    }
-    if (!insightFeature) {
-      log("PracticeMode", "questionInsight feature missing");
+    if (!quizFeature || !insightFeature) {
+      log(
+        "syncCardToCurrentQuestion: missing feature(s)",
+        "quiz=",
+        !!quizFeature,
+        "insight=",
+        !!insightFeature
+      );
       return;
     }
 
@@ -194,7 +405,6 @@
       getQuestionText: extractPracticeQuestionText,
       getQuestionId: getQuestionIdPractice,
       getOptionLetters: getOptionLettersPractice,
-      // CU1-A: mark this source as coming from practice mode
       mode: "practice"
     };
 
@@ -249,13 +459,14 @@
     }
 
     const knownId = wrapper.dataset.czQuestionId || "";
-
     if (isNewWrapper || knownId !== currentId) {
       wrapper.dataset.czQuestionId = currentId || "";
-
       resetAnalysis(wrapper);
       restoreCachedInsightIfAny(wrapper, insightConfig);
     }
+
+    // And make sure footer "Check answer" has our listener.
+    attachCheckAnswerListener();
   }
 
   function setupObserver() {
@@ -263,12 +474,14 @@
       document.querySelector(".quiz-page-content") || document.body;
 
     const obs = new MutationObserver(() => {
+      // Any time Udemy swaps questions / DOM changes, re-sync.
       syncCardToCurrentQuestion();
     });
 
     obs.observe(target, { childList: true, subtree: true });
   }
 
+  log("practice.js booting");
   syncCardToCurrentQuestion();
   setupObserver();
 

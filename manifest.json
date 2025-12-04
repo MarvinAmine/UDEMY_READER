@@ -21,6 +21,7 @@
         "src/core/state.js",
         "src/core/storage.js",
         "src/core/message.js",
+        "src/core/questionStats.js",
 
         "src/engines/inference.js",
         "src/engines/analysisFormatter.js",

@@ -1,5 +1,5 @@
 // src/adapters/review/questionId.js
-// Question-id helpers for review mode (native id or hashed stem+choices)
+// Question-id helpers for review mode (canonical hash or native id as fallback)
 
 (function () {
   if (typeof window === "undefined") return;
@@ -47,12 +47,17 @@
 
   function getReviewQuestionId(block) {
     if (!block) return null;
+
+    // Canonical ID: hash of stem + choices (matches practice mode).
+    const hashedId = computeQuestionHashFromReviewBlock(block);
+    if (hashedId) return hashedId;
+
+    // Fallback: Udemy native data-question-id if present.
     const idEl = block.querySelector("[data-question-id]");
     const nativeQuestionId = idEl
       ? idEl.getAttribute("data-question-id")
       : null;
-    if (nativeQuestionId) return nativeQuestionId;
-    return computeQuestionHashFromReviewBlock(block) || null;
+    return nativeQuestionId || null;
   }
 
   ns.computeQuestionHashFromReviewBlock =

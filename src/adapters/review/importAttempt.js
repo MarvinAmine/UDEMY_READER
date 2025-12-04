@@ -329,11 +329,17 @@
     }
 
     chrome.storage.local.get(
-      ["czExamAttempts", "czQuestionBank", "czQuestionAttempts"],
+      [
+        "czExamAttempts",
+        "czQuestionBank",
+        "czQuestionAttempts",
+        "czQuestionStats"
+      ],
       (res) => {
         const examAttempts = res.czExamAttempts || {};
         const questionBank = res.czQuestionBank || {};
         const questionAttempts = res.czQuestionAttempts || {};
+        const questionStats = res.czQuestionStats || {};
 
         if (examAttempts[examAttemptMeta.examAttemptKey]) {
           log(
@@ -395,11 +401,20 @@
           questionAttempts[att.attemptId] = att;
         });
 
+        // UC1-C: update per-question ground-truth stats from the new attempts
+        const qsHelper =
+          (window.czCore && window.czCore.questionStats) || null;
+        const updatedStats =
+          qsHelper && typeof qsHelper.applyAttemptsArray === "function"
+            ? qsHelper.applyAttemptsArray(questionStats, attempts)
+            : questionStats;
+
         chrome.storage.local.set(
           {
             czExamAttempts: examAttempts,
             czQuestionBank: questionBank,
-            czQuestionAttempts: questionAttempts
+            czQuestionAttempts: questionAttempts,
+            czQuestionStats: updatedStats
           },
           () => {
             log(
