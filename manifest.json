@@ -31,6 +31,7 @@
 
         "src/ui/analysisPanel.js",
         "src/ui/toolbar.js",
+        "src/ui/confidenceBar.js",
         "src/ui/wrapper.js",
 
         "src/adapters/practice.js",

@@ -14,6 +14,12 @@
     (window.czAdapters && window.czAdapters.reviewQuestionId) || {};
   const importHelpers =
     (window.czAdapters && window.czAdapters.reviewImport) || {};
+  const confidenceUi = window.czUI && window.czUI.confidenceBar;
+
+  const examCtx =
+    (importHelpers && importHelpers.getExamContext
+      ? importHelpers.getExamContext()
+      : null);
 
   const REVIEW_BLOCK_SELECTOR =
     dom.REVIEW_BLOCK_SELECTOR ||
@@ -194,9 +200,41 @@
 
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
+    attachConfidenceBar(block, wrapper);
+
     log(
       "ReviewMode",
       "Injected Quiz Reader + Question Insight into review block"
+    );
+  }
+
+  function attachConfidenceBar(block, wrapper) {
+    if (
+      !confidenceUi ||
+      typeof confidenceUi.mount !== "function" ||
+      !examCtx ||
+      !examCtx.examAttemptKey
+    ) {
+      return;
+    }
+
+    const questionId = getReviewQuestionId(block);
+    if (!questionId) return;
+
+    if (typeof importHelpers.findAttemptForQuestion !== "function") return;
+
+    importHelpers.findAttemptForQuestion(
+      examCtx.examAttemptKey,
+      questionId,
+      (attempt) => {
+        if (!attempt) return;
+        confidenceUi.mount(wrapper, {
+          attemptId: attempt.attemptId,
+          questionId: attempt.questionId,
+          confidence: attempt.confidence,
+          mode: attempt.mode
+        });
+      }
     );
   }
 

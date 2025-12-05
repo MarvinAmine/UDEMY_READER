@@ -21,6 +21,9 @@
 
   const hashString = window.czCore && window.czCore.hashString;
   const qsHelper = window.czCore && window.czCore.questionStats;
+  const confidenceUi = window.czUI && window.czUI.confidenceBar;
+
+  const latestAttemptByQuestion = {};
 
   // Udemy practice question container
   const QUIZ_FORM_SELECTOR =
@@ -339,10 +342,36 @@
               "isCorrect=",
               attempt.isCorrect
             );
+
+            rememberLatestAttempt(attempt);
+            mountConfidenceBar(attempt);
           }
         );
       }
     );
+  }
+
+  function rememberLatestAttempt(attempt) {
+    if (!attempt || !attempt.questionId) return;
+    latestAttemptByQuestion[attempt.questionId] = attempt;
+  }
+
+  function mountConfidenceBar(attempt) {
+    if (!attempt || !confidenceUi || typeof confidenceUi.mount !== "function") {
+      return;
+    }
+
+    const form = getQuestionForm();
+    if (!form) return;
+    const wrapper = form.querySelector(".cz-tts-wrapper");
+    if (!wrapper) return;
+
+    confidenceUi.mount(wrapper, {
+      attemptId: attempt.attemptId,
+      questionId: attempt.questionId,
+      confidence: attempt.confidence,
+      mode: attempt.mode
+    });
   }
 
   // ---------------- Hook the "Check answer" button ----------------
@@ -463,6 +492,11 @@
       wrapper.dataset.czQuestionId = currentId || "";
       resetAnalysis(wrapper);
       restoreCachedInsightIfAny(wrapper, insightConfig);
+    }
+
+    const latestAttempt = currentId ? latestAttemptByQuestion[currentId] : null;
+    if (latestAttempt) {
+      mountConfidenceBar(latestAttempt);
     }
 
     // And make sure footer "Check answer" has our listener.

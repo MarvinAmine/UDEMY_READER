@@ -13,6 +13,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleGetCachedAnalysis(msg, sendResponse);
     return true;
   }
+
+  if (msg.type === "CZ_SET_CONFIDENCE") {
+    handleSetConfidence(msg, sendResponse);
+    return true;
+  }
 });
 
 async function handleAnalyzeQuestion(msg, sendResponse) {
@@ -212,6 +217,127 @@ async function handleGetCachedAnalysis(msg, sendResponse) {
     }
 
     sendResponse({ ok: false, notFound: true });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+function normalizeConfidence(conf) {
+  if (!conf) return null;
+  const v = String(conf).toLowerCase();
+  if (v === "sure" || v === "unsure" || v === "guess") return v;
+  return null;
+}
+
+function recomputeStatsForQuestion(questionId, questionAttempts, stats) {
+  const out = Object.assign({}, stats || {});
+  const key = String(questionId || "");
+  const existing = out[key] || {};
+  const entry = {
+    questionId: key,
+    totalAttempts: 0,
+    correctAttempts: 0,
+    wrongAttempts: 0,
+    guessAttempts: 0,
+    unsureAttempts: 0,
+    sureAttempts: 0,
+    lastAttemptAt: null,
+    lastCorrectAt: null,
+    lastWrongAt: null,
+    analyzeInvocationCount: existing.analyzeInvocationCount || 0,
+    lastAnalyzedAt:
+      typeof existing.lastAnalyzedAt === "number"
+        ? existing.lastAnalyzedAt
+        : null
+  };
+
+  Object.values(questionAttempts || {}).forEach((att) => {
+    if (!att || String(att.questionId || "") !== key) return;
+
+    const tsRaw = att.timestamp;
+    const ts =
+      typeof tsRaw === "number" && !Number.isNaN(tsRaw) ? tsRaw : Date.now();
+
+    entry.totalAttempts += 1;
+    if (att.isCorrect === true) {
+      entry.correctAttempts += 1;
+      entry.lastCorrectAt = entry.lastCorrectAt
+        ? Math.max(entry.lastCorrectAt, ts)
+        : ts;
+    } else if (att.isCorrect === false) {
+      entry.wrongAttempts += 1;
+      entry.lastWrongAt = entry.lastWrongAt
+        ? Math.max(entry.lastWrongAt, ts)
+        : ts;
+    }
+
+    const conf = normalizeConfidence(att.confidence);
+    if (conf === "guess") entry.guessAttempts += 1;
+    if (conf === "unsure") entry.unsureAttempts += 1;
+    if (conf === "sure") entry.sureAttempts += 1;
+
+    entry.lastAttemptAt = entry.lastAttemptAt
+      ? Math.max(entry.lastAttemptAt, ts)
+      : ts;
+  });
+
+  out[key] = entry;
+  return out;
+}
+
+function handleSetConfidence(msg, sendResponse) {
+  try {
+    const attemptId = msg && msg.attemptId ? String(msg.attemptId) : null;
+    const confidence = normalizeConfidence(msg && msg.confidence);
+
+    if (!attemptId || !confidence) {
+      sendResponse({ ok: false, error: "INVALID_INPUT" });
+      return;
+    }
+
+    if (!chrome?.storage?.local) {
+      sendResponse({ ok: false, error: "NO_STORAGE" });
+      return;
+    }
+
+    chrome.storage.local.get(["czQuestionAttempts", "czQuestionStats"], (res) => {
+      const questionAttempts = res.czQuestionAttempts || {};
+      const questionStats = res.czQuestionStats || {};
+
+      const attempt = questionAttempts[attemptId];
+      if (!attempt || !attempt.questionId) {
+        sendResponse({ ok: false, error: "ATTEMPT_NOT_FOUND" });
+        return;
+      }
+
+      const prevConf = normalizeConfidence(attempt.confidence);
+      if (prevConf === confidence) {
+        sendResponse({ ok: true, confidence });
+        return;
+      }
+
+      attempt.confidence = confidence;
+      questionAttempts[attemptId] = attempt;
+
+      const updatedStats = recomputeStatsForQuestion(
+        attempt.questionId,
+        questionAttempts,
+        questionStats
+      );
+
+      chrome.storage.local.set(
+        {
+          czQuestionAttempts: questionAttempts,
+          czQuestionStats: updatedStats
+        },
+        () => {
+          sendResponse({ ok: true, confidence });
+        }
+      );
+    });
   } catch (err) {
     sendResponse({
       ok: false,
