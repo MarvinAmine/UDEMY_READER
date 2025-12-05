@@ -18,6 +18,7 @@
       window.czAdapters.reviewImport || {});
 
   let uc1bImportTriggered = false;
+  let attemptCache = null;
 
   function normalizeWhitespace(text) {
     if (dom.normalizeWhitespace) return dom.normalizeWhitespace(text);
@@ -275,6 +276,60 @@
     return { questionMeta, attempt };
   }
 
+  function primeAttemptCache(examAttemptKey, attempts) {
+    if (!examAttemptKey) return;
+    const byQuestion = {};
+
+    (attempts || []).forEach((att) => {
+      if (!att || !att.questionId) return;
+      const key = String(att.questionId);
+      const existing = byQuestion[key];
+      if (!existing || (att.timestamp || 0) >= (existing.timestamp || 0)) {
+        byQuestion[key] = att;
+      }
+    });
+
+    attemptCache = { examAttemptKey, byQuestion };
+  }
+
+  function loadAttemptCacheFromStorage(examAttemptKey, cb) {
+    if (!examAttemptKey || !chrome?.storage?.local) {
+      cb && cb(null);
+      return;
+    }
+
+    chrome.storage.local.get(["czQuestionAttempts"], (res) => {
+      const attemptsObj = res.czQuestionAttempts || {};
+      const list = Object.values(attemptsObj).filter(
+        (att) => att && att.examAttemptKey === examAttemptKey
+      );
+      primeAttemptCache(examAttemptKey, list);
+      cb && cb(attemptCache);
+    });
+  }
+
+  function findAttemptForQuestion(examAttemptKey, questionId, cb) {
+    if (!examAttemptKey || !questionId) {
+      cb && cb(null);
+      return;
+    }
+
+    const qKey = String(questionId);
+
+    if (attemptCache && attemptCache.examAttemptKey === examAttemptKey) {
+      cb && cb(attemptCache.byQuestion[qKey] || null);
+      return;
+    }
+
+    loadAttemptCacheFromStorage(examAttemptKey, () => {
+      if (attemptCache && attemptCache.examAttemptKey === examAttemptKey) {
+        cb && cb(attemptCache.byQuestion[qKey] || null);
+        return;
+      }
+      cb && cb(null);
+    });
+  }
+
   function importExamAttempt(examCtx) {
     if (!chrome?.storage?.local) {
       log("ReviewMode", "chrome.storage.local not available – UC1-B skipped.");
@@ -327,6 +382,8 @@
       log("ReviewMode", "UC1-B: no questions parsed, skipping import.");
       return;
     }
+
+    primeAttemptCache(examCtx.examAttemptKey, attempts);
 
     chrome.storage.local.get(
       [
@@ -456,6 +513,7 @@
           "UC1-B: exam attempt already imported:",
           examCtx.examAttemptKey
         );
+        loadAttemptCacheFromStorage(examCtx.examAttemptKey);
         return;
       }
       importExamAttempt(examCtx);
@@ -467,4 +525,5 @@
   ns.parseExamStats = parseExamStats;
   ns.extractQuestionImportPayload = extractQuestionImportPayload;
   ns.importExamAttempt = importExamAttempt;
+  ns.findAttemptForQuestion = findAttemptForQuestion;
 })();
