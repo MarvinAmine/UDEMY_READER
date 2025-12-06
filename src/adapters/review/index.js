@@ -22,6 +22,18 @@
     dom.INLINE_RESULT_SELECTOR ||
     ".question-result--question-result--LWiOB";
 
+  let hasLoggedImportSkip = false;
+
+  function isReviewPageUrl() {
+    const path = window.location.pathname || "";
+    return /\/quiz\/\d+\/(result|review)\//.test(path);
+  }
+
+  function isInlinePracticeResult() {
+    // Practice mode "review-like" panel shown immediately after validation.
+    return !!document.querySelector(INLINE_RESULT_SELECTOR);
+  }
+
   function getReviewQuestionId(block) {
     if (questionHelpers.getReviewQuestionId) {
       return questionHelpers.getReviewQuestionId(block);
@@ -111,7 +123,7 @@
     }
   }
 
-  function injectCardForBlock(block) {
+  function injectCardForBlock(block, logInjection) {
     if (!block || block.dataset.czTtsInjected === "1") return;
 
     const promptEl = findPromptEl(block);
@@ -194,29 +206,33 @@
 
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
-    log(
-      "ReviewMode",
-      "Injected Quiz Reader + Question Insight into review block"
-    );
+    if (logInjection) {
+      log(
+        "ReviewMode",
+        "Injected Quiz Reader + Question Insight into review block"
+      );
+    }
   }
 
   function scanAndInjectAll() {
+    const inReviewUrl = isReviewPageUrl();
+    const inPracticeInline = !inReviewUrl && isInlinePracticeResult();
+    if (!inReviewUrl && !inPracticeInline) return;
+
     let blocks = document.querySelectorAll(REVIEW_BLOCK_SELECTOR);
     if (!blocks.length) {
       blocks = document.querySelectorAll(INLINE_RESULT_SELECTOR);
     }
     if (!blocks.length) return;
 
-    if (typeof importHelpers.ensureReviewImportOnce === "function") {
+    // Only trigger UC1-B import on true review pages.
+    if (inReviewUrl && typeof importHelpers.ensureReviewImportOnce === "function") {
       importHelpers.ensureReviewImportOnce();
-    } else {
-      log(
-        "ReviewMode",
-        "UC1-B import helper not available; skipping exam-level import."
-      );
+    } else if (inPracticeInline && !hasLoggedImportSkip) {
+      hasLoggedImportSkip = true;
     }
 
-    blocks.forEach(injectCardForBlock);
+    blocks.forEach((block) => injectCardForBlock(block, inReviewUrl));
   }
 
   if (document.readyState === "loading") {

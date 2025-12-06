@@ -5,6 +5,14 @@
   if (typeof window === "undefined") return;
   if (!window.czAdapters) window.czAdapters = {};
 
+  function isReviewPageUrl() {
+    const path = window.location.pathname || "";
+    return /\/quiz\/\d+\/(result|review)\//.test(path);
+  }
+
+  // Skip all UC1-B wiring when not on a review URL to avoid practice-mode noise.
+  if (!isReviewPageUrl()) return;
+
   const log = (window.czCore && window.czCore.log) || (() => {});
   const dom = window.czAdapters.reviewDom || {};
   const questionHelpers = window.czAdapters.reviewQuestionId || {};
@@ -432,6 +440,7 @@
 
   function ensureReviewImportOnce() {
     if (uc1bImportTriggered) return;
+    if (!isReviewPageUrl()) return;
     const examCtx = getExamContext();
     if (!examCtx) {
       log(
