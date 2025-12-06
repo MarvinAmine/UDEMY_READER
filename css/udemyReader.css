@@ -1,13 +1,37 @@
-/* css/udemyReader.css */
+/* File: /css/udemyReader.css */
 
-/* Shared card for both practice + review */
+/* ------------------------------------------------------------------ */
+/* Root-level variables (you can tweak these to re-theme quickly)     */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --cz-border: #e5e7eb;
+  --cz-border-strong: #cbd5e1;
+  --cz-bg: #f9fafb;
+  --cz-bg-card: #f9fafb;
+  --cz-bg-toolbar-btn: #ffffff;
+  --cz-bg-toolbar-btn-hover: #e5e7eb;
+  --cz-fg: #111827;
+  --cz-fg-muted: #4b5563;
+  --cz-fg-soft: #6b7280;
+  --cz-pill-fg: #374151;
+  --cz-pill-bg: #f9fafb;
+  --cz-pill-bg-hover: #e5e7eb;
+  --cz-accent: #2563eb;
+  --cz-accent-hover: #1d4ed8;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared card for both practice + review                             */
+/* ------------------------------------------------------------------ */
+
 #cz-tts-wrapper.cz-tts-wrapper,
 .cz-tts-wrapper.cz-tts-review {
-  border: 1px solid var(--color-gray-200, #e5e7eb);
+  border: 1px solid var(--cz-border, #e5e7eb);
   border-radius: 6px;
   padding: 8px 10px;
   margin: 13px 13px -12px 13px;
-  background: #f9fafb;
+  background: var(--cz-bg-card, #f9fafb);
   font-size: 13px;
   display: block;
 }
@@ -19,13 +43,17 @@
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
-/* Collapsed state: hide status + analysis, keep toolbar visible */
+/* Collapsed state: hide status + analysis + confidence block, keep toolbar visible */
 .cz-tts-wrapper.cz-tts-collapsed .cz-tts-status,
-.cz-tts-wrapper.cz-tts-collapsed .cz-tts-analysis {
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-analysis,
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-confidence-row,
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-confidence-root {
   display: none;
 }
 
-/* Toolbar */
+/* ------------------------------------------------------------------ */
+/* Toolbar                                                            */
+/* ------------------------------------------------------------------ */
 
 .cz-tts-toolbar {
   display: flex;
@@ -43,16 +71,29 @@
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 4px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
+  border: 1px solid var(--cz-border-strong, #cbd5e1);
+  background: var(--cz-bg-toolbar-btn, #ffffff);
   cursor: pointer;
+  color: var(--cz-fg, #111827);
+  line-height: 1.3;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
+  text-shadow: none;
 }
 
 .cz-tts-btn:hover {
-  background: #f1f5f9;
+  background: var(--cz-bg-toolbar-btn-hover, #e5e7eb);
+  color: var(--cz-fg, #111827);
 }
 
-/* Optional: visually push collapse toggle to the right */
+.cz-tts-btn:focus-visible {
+  outline: 2px solid var(--cz-accent, #2563eb);
+  outline-offset: 1px;
+}
+
+/* Push collapse toggle to the right */
 .cz-tts-collapse-toggle {
   margin-left: auto;
 }
@@ -60,10 +101,159 @@
 .cz-tts-status {
   margin-top: 4px;
   font-size: 12px;
-  color: #4b5563;
+  color: var(--cz-fg-muted, #4b5563);
 }
 
-/* Highlighted words inside the Udemy question / answers */
+/* ------------------------------------------------------------------ */
+/* (Legacy) Confidence row – inline, before answering                 */
+/*  (Kept for backward compatibility; pills are the new system.)      */
+/* ------------------------------------------------------------------ */
+
+.cz-tts-confidence-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cz-border, #e5e7eb);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.cz-tts-confidence-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cz-fg-muted, #4b5563);
+  margin-right: 4px;
+}
+
+.cz-tts-confidence-btn {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--cz-border-strong, #cbd5e1);
+  background: var(--cz-pill-bg, #f9fafb);
+  color: var(--cz-pill-fg, #374151);
+  cursor: pointer;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.cz-tts-confidence-btn:hover {
+  background: var(--cz-pill-bg-hover, #e5e7eb);
+  color: var(--cz-fg, #111827);
+}
+
+.cz-tts-confidence-btn-active {
+  background: var(--cz-accent, #2563eb);
+  border-color: var(--cz-accent, #2563eb);
+  color: #ffffff;
+}
+
+.cz-tts-confidence-btn-active:hover {
+  background: var(--cz-accent-hover, #1d4ed8);
+  border-color: var(--cz-accent-hover, #1d4ed8);
+  color: #ffffff;
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW Confidence block (pills) – practice + review                   */
+/* ------------------------------------------------------------------ */
+
+/* Root block that JS mounts into (used by both practice & review) */
+.cz-tts-confidence-root {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cz-border, #e5e7eb);
+  font-size: 12px;
+}
+
+/* Readonly in name only – still editable, just a styling hook */
+.cz-tts-confidence-readonly {
+  /* Slightly softer overall, but pills remain clickable */
+}
+
+/* Pills container */
+.cz-tts-confidence-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+/* Reuse the same label style as other labels */
+.cz-tts-confidence-pills .cz-tts-confidence-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cz-fg-muted, #4b5563);
+  margin-right: 4px;
+}
+
+/* Individual pill */
+.cz-tts-confidence-pill {
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 999px;
+  border: 1px solid var(--cz-border-strong, #cbd5e1);
+  background: var(--cz-pill-bg, #f9fafb);
+  color: var(--cz-pill-fg, #374151);
+  font-size: 11px;
+  padding: 1px 10px;
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-family: inherit;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+/* Hover – keep strong contrast */
+.cz-tts-confidence-pill:hover {
+  background: var(--cz-pill-bg-hover, #e5e7eb);
+  color: var(--cz-fg, #111827);
+}
+
+/* Focus for keyboard users */
+.cz-tts-confidence-pill:focus-visible {
+  outline: 2px solid var(--cz-accent, #2563eb);
+  outline-offset: 1px;
+}
+
+/* Selected state – single source of truth:
+   The JS adds .cz-tts-confidence-pill-selected,
+   but we also support aria-pressed / data-cz-selected just in case. */
+.cz-tts-confidence-pill.cz-tts-confidence-pill-selected,
+.cz-tts-confidence-pill[data-cz-selected="true"],
+.cz-tts-confidence-pill[aria-pressed="true"],
+.cz-tts-confidence-pills .cz-tts-confidence-pill.cz-tts-confidence-pill-selected {
+  background: var(--cz-accent, #2563eb);
+  border-color: var(--cz-accent, #2563eb);
+  color: #ffffff;
+}
+
+.cz-tts-confidence-pill.cz-tts-confidence-pill-selected:hover,
+.cz-tts-confidence-pill[data-cz-selected="true"]:hover,
+.cz-tts-confidence-pill[aria-pressed="true"]:hover,
+.cz-tts-confidence-pills .cz-tts-confidence-pill.cz-tts-confidence-pill-selected:hover {
+  background: var(--cz-accent-hover, #1d4ed8);
+  border-color: var(--cz-accent-hover, #1d4ed8);
+  color: #ffffff;
+}
+
+/* Summary line under pills */
+.cz-tts-confidence-summary {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--cz-fg-soft, #6b7280);
+}
+
+/* ------------------------------------------------------------------ */
+/* Highlighted words inside the Udemy question / answers              */
+/* ------------------------------------------------------------------ */
 
 .cz-tts-word {
   padding: 0 1px;
@@ -82,14 +272,16 @@
   transition: background-color 0.1s ease-in-out;
 }
 
-/* Analysis (Question Insight) */
+/* ------------------------------------------------------------------ */
+/* Analysis (Question Insight)                                        */
+/* ------------------------------------------------------------------ */
 
 .cz-tts-analysis {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--cz-border, #e5e7eb);
   font-size: 12px;
-  color: #374151;
+  color: var(--cz-pill-fg, #374151);
 }
 
 .cz-tts-analysis-header {
@@ -102,7 +294,7 @@
 
 .cz-tts-analysis-title {
   font-weight: 600;
-  color: #111827;
+  color: var(--cz-fg, #111827);
 }
 
 .cz-tts-analysis-body {
@@ -122,5 +314,5 @@
 .cz-tts-analysis-tags {
   margin-top: 4px;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--cz-fg-soft, #6b7280);
 }

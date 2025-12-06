@@ -1,5 +1,6 @@
 // /src/core/questionStats.js
 // UC1-C – Per-question ground-truth stats aggregated from QuestionAttempts.
+// Extended for CU2 – track confidence buckets + lastConfidence.
 
 (function () {
   if (window.czCore && window.czCore.questionStats) return;
@@ -21,6 +22,8 @@
    *   lastAttemptAt: number,
    *   lastCorrectAt: number | undefined,
    *   lastWrongAt: number | undefined,
+   *   lastConfidence: "guess" | "unsure" | "sure" | undefined,
+   *   lastMode: string | undefined,
    *   // Plus any fields written by CU1-A (tags, analyzeInvocationCount, etc.)
    * }
    */
@@ -34,9 +37,7 @@
 
     const tsRaw = attempt.timestamp;
     const ts =
-      typeof tsRaw === "number" && !Number.isNaN(tsRaw)
-        ? tsRaw
-        : Date.now();
+      typeof tsRaw === "number" && !Number.isNaN(tsRaw) ? tsRaw : Date.now();
 
     entry.questionId = key;
 
@@ -50,38 +51,41 @@
       entry.wrongAttempts = (entry.wrongAttempts || 0) + 1;
     }
 
-    // Confidence buckets
+    // Confidence buckets (CU2)
     const conf = attempt.confidence;
     if (conf === "guess") {
       entry.guessAttempts = (entry.guessAttempts || 0) + 1;
+      entry.lastConfidence = "guess";
     } else if (conf === "unsure") {
       entry.unsureAttempts = (entry.unsureAttempts || 0) + 1;
+      entry.lastConfidence = "unsure";
     } else if (conf === "sure") {
       entry.sureAttempts = (entry.sureAttempts || 0) + 1;
+      entry.lastConfidence = "sure";
+    }
+
+    if (attempt.mode) {
+      entry.lastMode = String(attempt.mode);
     }
 
     // Recency
     const prevLastAttempt =
-      typeof entry.lastAttemptAt === "number" &&
-      !Number.isNaN(entry.lastAttemptAt)
+      typeof entry.lastAttemptAt === "number" && !Number.isNaN(entry.lastAttemptAt)
         ? entry.lastAttemptAt
         : 0;
 
-    entry.lastAttemptAt =
-      prevLastAttempt > 0 ? Math.max(prevLastAttempt, ts) : ts;
+    entry.lastAttemptAt = prevLastAttempt > 0 ? Math.max(prevLastAttempt, ts) : ts;
 
     if (attempt.isCorrect === true) {
       const prevLastCorrect =
-        typeof entry.lastCorrectAt === "number" &&
-        !Number.isNaN(entry.lastCorrectAt)
+        typeof entry.lastCorrectAt === "number" && !Number.isNaN(entry.lastCorrectAt)
           ? entry.lastCorrectAt
           : 0;
       entry.lastCorrectAt =
         prevLastCorrect > 0 ? Math.max(prevLastCorrect, ts) : ts;
     } else if (attempt.isCorrect === false) {
       const prevLastWrong =
-        typeof entry.lastWrongAt === "number" &&
-        !Number.isNaN(entry.lastWrongAt)
+        typeof entry.lastWrongAt === "number" && !Number.isNaN(entry.lastWrongAt)
           ? entry.lastWrongAt
           : 0;
       entry.lastWrongAt =

@@ -30,6 +30,7 @@
         "src/engines/ttsEngineGoogle.js",
 
         "src/ui/analysisPanel.js",
+        "src/ui/confidenceInline.js",
         "src/ui/toolbar.js",
         "src/ui/wrapper.js",
 
