@@ -1,5 +1,7 @@
-// src/adapters/review/index.js
-// Review mode adapter: mounts Quiz Reader + Question Insight and triggers UC1-B import
+// File: /src/adapters/review/index.js
+//
+// Review mode adapter: mounts Quiz Reader + Question Insight and triggers UC1-B import.
+// CU2: mounts the inline confidence strip on the same cz-tts-wrapper, linked by questionId.
 
 (function () {
   if (typeof window === "undefined") return;
@@ -14,6 +16,8 @@
     (window.czAdapters && window.czAdapters.reviewQuestionId) || {};
   const importHelpers =
     (window.czAdapters && window.czAdapters.reviewImport) || {};
+  const confidenceInline =
+    window.czUI && window.czUI.confidenceInline;
 
   const REVIEW_BLOCK_SELECTOR =
     dom.REVIEW_BLOCK_SELECTOR ||
@@ -50,7 +54,10 @@
 
   function getQuestionTextWithExplanation(block) {
     if (dom.extractReviewExplanation) {
-      return dom.extractReviewExplanation(block);
+      const expl = dom.extractReviewExplanation(block);
+      if (expl && expl.trim()) {
+        return getQuestionText(block) + "\n\nExplanation:\n" + expl;
+      }
     }
     return getQuestionText(block);
   }
@@ -129,80 +136,93 @@
     const promptEl = findPromptEl(block);
     if (!promptEl) return;
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "cz-tts-wrapper cz-tts-review";
-    wrapper.innerHTML = `
-      <div class="cz-tts-toolbar">
-        <span class="cz-tts-title">Quiz Reader</span>
-        <button type="button" class="cz-tts-btn" data-action="play-question">
-          ▶ Play Q + answers
-        </button>
-        <button type="button" class="cz-tts-btn" data-action="play-question-expl">
-          ▶ Play explanation
-        </button>
-        <button type="button" class="cz-tts-btn" data-action="play-selection">
-          ▶ Play selection
-        </button>
-        <button type="button" class="cz-tts-btn" data-action="stop" disabled>
-          ⏹ Stop
-        </button>
-        <button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">
-          ▾ Hide all
-        </button>
-      </div>
-      <div class="cz-tts-status">
-        Ready. Use “Play Q + answers” or select some text and use “Play selection”.
-      </div>
-      <div class="cz-tts-analysis">
-        <div class="cz-tts-analysis-header">
-          <span class="cz-tts-analysis-title">Question Insight</span>
-          <button type="button" class="cz-tts-btn" data-action="analyze-question">
-            🧠 Analyze question
-          </button>
-        </div>
-        <div class="cz-tts-analysis-body">
-          Click “Analyze question” to see a simplified stem, key triggers, and topic tags.
-        </div>
-      </div>
-    `;
-
-    promptEl.insertAdjacentElement("afterend", wrapper);
-    block.dataset.czTtsInjected = "1";
-
     const quizFeature =
       window.czFeatures && window.czFeatures.quizReader;
     const insightFeature =
       window.czFeatures && window.czFeatures.questionInsight;
 
-    if (!quizFeature) {
-      log("ReviewMode", "quizReader feature missing");
+    if (!quizFeature || !insightFeature) {
+      log(
+        "ReviewMode",
+        "Missing feature(s): quiz=",
+        !!quizFeature,
+        "insight=",
+        !!insightFeature
+      );
       return;
     }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "cz-tts-wrapper cz-tts-review";
+    wrapper.innerHTML =
+      '<div class="cz-tts-toolbar">' +
+      '<span class="cz-tts-title">Quiz Reader</span>' +
+      '<button type="button" class="cz-tts-btn" data-action="play-question">' +
+      "▶ Play Q + answers" +
+      "</button>" +
+      '<button type="button" class="cz-tts-btn" data-action="play-question-expl">' +
+      "▶ Play explanation" +
+      "</button>" +
+      '<button type="button" class="cz-tts-btn" data-action="play-selection">' +
+      "▶ Play selection" +
+      "</button>" +
+      '<button type="button" class="cz-tts-btn" data-action="stop" disabled>' +
+      "⏹ Stop" +
+      "</button>" +
+      '<button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">' +
+      "▾ Hide all" +
+      "</button>" +
+      "</div>" +
+      '<div class="cz-tts-status">' +
+      'Ready. Use “Play Q + answers” or “Play explanation”, or select text and use “Play selection”.' +
+      "</div>" +
+      '<div class="cz-tts-confidence-root"></div>' +
+      '<div class="cz-tts-analysis">' +
+      '<div class="cz-tts-analysis-header">' +
+      '<span class="cz-tts-analysis-title">Question Insight</span>' +
+      '<button type="button" class="cz-tts-btn" data-action="analyze-question">' +
+      "🧠 Analyze question" +
+      "</button>" +
+      "</div>" +
+      '<div class="cz-tts-analysis-body">' +
+      "Click “Analyze question” to see a simplified stem, key triggers, and topic tags." +
+      "</div>" +
+      "</div>";
+
+    promptEl.insertAdjacentElement("afterend", wrapper);
+    block.dataset.czTtsInjected = "1";
 
     const insightConfig = {
       getQuestionText: () => getQuestionText(block),
-      getOptionLetters: () => getOptionLetters(block),
       getQuestionId: () => getReviewQuestionId(block),
+      getOptionLetters: () => getOptionLetters(block),
       mode: "review"
     };
 
-    quizFeature.mount(wrapper, {
-      getText: () => getQuestionText(block),
-      getTextWithExplanation: () =>
-        getQuestionTextWithExplanation(block),
-      getHighlightRoots: (action) =>
-        getHighlightRoots(block, action)
-    });
-
-    if (!insightFeature) {
-      log("ReviewMode", "questionInsight feature missing");
-      return;
+    // Store questionId on wrapper for CU2 / stats
+    const qid = getReviewQuestionId(block);
+    if (qid && wrapper.dataset) {
+      wrapper.dataset.czQuestionId = String(qid);
     }
 
-    const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
-    if (!analysisRoot) return;
+    quizFeature.mount(wrapper, {
+      getText: () => getQuestionText(block),
+      getTextWithExplanation: () => getQuestionTextWithExplanation(block),
+      getHighlightRoots: (action) => getHighlightRoots(block, action)
+    });
 
-    insightFeature.mount(analysisRoot, insightConfig);
+    const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
+    if (analysisRoot) {
+      insightFeature.mount(analysisRoot, insightConfig);
+    }
+
+    // CU2 – mount inline confidence (read-only in review mode)
+    if (confidenceInline && typeof confidenceInline.mount === "function") {
+      confidenceInline.mount(wrapper, {
+        getQuestionId: () => getReviewQuestionId(block),
+        mode: "review"
+      });
+    }
 
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 

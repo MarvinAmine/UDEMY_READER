@@ -1,9 +1,11 @@
-// /src/adapters/practice.js
+// File: /src/adapters/practice.js
 // Practice/Test mode (1 question per page) adapter.
 //
 // - Mounts Quiz Reader + Question Insight on practice questions.
+// - Provides a small inline confidence UI (guess / unsure / sure) under the status line.
 // - Logs a QuestionAttempt to chrome.storage.local whenever the user clicks
 //   Udemy's "Check answer" button (data-purpose="check-answer").
+//   The snapshot includes the selected confidence level.
 //
 // NOTE: Udemy replaces the <form> with a result view after clicking "Check answer".
 //       So we must build & log the attempt *before* the DOM is replaced.
@@ -58,7 +60,7 @@
 
   function findPromptElPractice(form) {
     if (!form) return null;
-    // Matches your DOM: div#question-prompt.ud-text-bold.mc-quiz-question--question-prompt--9cMw2
+    // Matches DOM like: div#question-prompt.ud-text-bold.mc-quiz-question--question-prompt--9cMw2
     return (
       form.querySelector("#question-prompt") ||
       form.querySelector(".mc-quiz-question--question-prompt--9cMw2")
@@ -83,7 +85,7 @@
       return `${label}. ${text}`;
     });
 
-    return questionText + (answers.length ? "\n\n" + answers.join("\n") : "");
+    return questionText + (answers.length ? `\n\n${answers.join("\n")}` : "");
   }
 
   function getHighlightRootsPractice() {
@@ -142,6 +144,8 @@
   }
 
   function resetAnalysis(wrapper) {
+    if (!wrapper) return;
+
     const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
     if (analysisBody) {
       analysisBody.innerHTML =
@@ -198,10 +202,141 @@
     }
   }
 
+  // ---------------- Confidence helpers (CU2) ----------------
+
+  function getCardWrapper(formOverride) {
+    const form = formOverride || getQuestionForm();
+    if (!form) return null;
+    return form.querySelector(".cz-tts-wrapper");
+  }
+
+  function getCurrentConfidence(formOverride) {
+    const wrapper = getCardWrapper(formOverride);
+    if (!wrapper) return null;
+
+    const activeBtn = wrapper.querySelector(
+      ".cz-tts-confidence-btn.cz-tts-confidence-btn-active"
+    );
+
+    let value = null;
+    if (activeBtn) {
+      value = activeBtn.dataset.confidence || "";
+    } else if (wrapper.dataset && wrapper.dataset.czConfidence) {
+      value = wrapper.dataset.czConfidence;
+    }
+
+    if (!value) return null;
+    const v = String(value).trim().toLowerCase();
+    if (v === "guess" || v === "unsure" || v === "sure") {
+      return v;
+    }
+    return null;
+  }
+
+  // In-memory cache so the confidence pill stays highlighted even if Udemy
+  // re-renders the form after validation.
+  const confidenceCache = {};
+
+  function getConfidenceCacheKey(wrapper) {
+    if (!wrapper) return null;
+    if (wrapper.dataset) {
+      const existing =
+        wrapper.dataset.czConfidenceCacheKey ||
+        wrapper.dataset.czQuestionId;
+      if (existing) return String(existing);
+    }
+
+    const form = wrapper.closest(QUIZ_FORM_SELECTOR);
+    if (form) {
+      const qid = getQuestionIdPractice(form);
+      if (qid) return qid;
+
+      const promptEl = findPromptElPractice(form);
+      const promptText = normalizeWhitespace(
+        (promptEl && promptEl.innerText) || ""
+      );
+      if (promptText) {
+        if (hashString) {
+          return "prompt_" + hashString(promptText);
+        }
+        return "prompt_" + promptText.toLowerCase().slice(0, 200);
+      }
+    }
+
+    return null;
+  }
+
+  function applyConfidenceSelection(wrapper, value) {
+    if (!wrapper) return;
+    const normalized = value ? String(value).trim().toLowerCase() : "";
+
+    if (wrapper.dataset) {
+      if (normalized) {
+        wrapper.dataset.czConfidence = normalized;
+      } else {
+        delete wrapper.dataset.czConfidence;
+      }
+    }
+
+    const btns = wrapper.querySelectorAll(".cz-tts-confidence-btn");
+    btns.forEach((btn) => {
+      const btnVal = String(btn.dataset.confidence || "")
+        .trim()
+        .toLowerCase();
+      const isActive = normalized && btnVal === normalized;
+      btn.classList.toggle("cz-tts-confidence-btn-active", isActive);
+      btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  function hydrateConfidenceFromMemory(wrapper, questionId) {
+    const key =
+      questionId ||
+      (wrapper.dataset && wrapper.dataset.czConfidenceCacheKey) ||
+      getConfidenceCacheKey(wrapper);
+    const cached = key ? confidenceCache[key] : null;
+    applyConfidenceSelection(wrapper, cached || null);
+  }
+
+  function clearConfidenceUI(wrapper) {
+    if (!wrapper) return;
+    applyConfidenceSelection(wrapper, null);
+  }
+
+  function attachConfidenceHandlers(wrapper) {
+    if (!wrapper) return;
+    const btns = wrapper.querySelectorAll(".cz-tts-confidence-btn");
+    if (!btns.length) return;
+
+    btns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const raw = btn.dataset.confidence || "";
+        const v = String(raw).trim().toLowerCase();
+        if (!v) return;
+
+        btns.forEach((b) => {
+          b.classList.remove("cz-tts-confidence-btn-active");
+          b.setAttribute("aria-pressed", "false");
+        });
+
+        applyConfidenceSelection(wrapper, v);
+
+        const cacheKey = getConfidenceCacheKey(wrapper);
+        if (cacheKey) {
+          confidenceCache[cacheKey] = v;
+          if (wrapper.dataset) {
+            wrapper.dataset.czConfidenceCacheKey = cacheKey;
+          }
+        }
+      });
+    });
+  }
+
   // ---------------- Attempt snapshot + logging ----------------
 
   /**
    * Build a QuestionAttempt from the current practice form.
+   * Includes the current confidence selection ("guess" | "unsure" | "sure").
    * This MUST be called *before* Udemy replaces the form with the result view.
    */
   function buildPracticeAttemptFromForm(formOverride) {
@@ -216,6 +351,8 @@
       log("buildPracticeAttemptFromForm: no questionId");
       return null;
     }
+
+    const confidence = getCurrentConfidence(form);
 
     const promptEl = findPromptElPractice(form);
     const stemText = promptEl
@@ -278,12 +415,13 @@
       chosenIndices,
       correctIndices,
       isCorrect,
-      confidence: null
+      confidence: confidence || null
     };
 
     log("buildPracticeAttemptFromForm: snapshot", {
       questionId,
-      chosenIndicesCount: chosenIndices.length
+      chosenIndicesCount: chosenIndices.length,
+      confidence: attempt.confidence
     });
 
     return attempt;
@@ -337,7 +475,9 @@
               "Logged practice attempt snapshot",
               attempt.questionId,
               "isCorrect=",
-              attempt.isCorrect
+              attempt.isCorrect,
+              "confidence=",
+              attempt.confidence
             );
           }
         );
@@ -363,7 +503,9 @@
     }
     btn.dataset.czTtsAttemptHooked = "1";
 
-    log('attachCheckAnswerListener: hooked button[data-purpose="check-answer"]');
+    log(
+      'attachCheckAnswerListener: hooked button[data-purpose="check-answer"]'
+    );
 
     btn.addEventListener("click", () => {
       // IMPORTANT: Udemy will replace the form with the result view immediately
@@ -374,6 +516,27 @@
         log("click handler: no attempt snapshot built");
         return;
       }
+
+      // Persist confidence pick so the inline pills on the result page stay
+      // highlighted (uses the same question hash as review mode).
+      try {
+        const confidenceInline =
+          window.czUI && window.czUI.confidenceInline;
+        if (
+          confidenceInline &&
+          typeof confidenceInline.recordAttempt === "function" &&
+          attempt.questionId
+        ) {
+          confidenceInline.recordAttempt(
+            attempt.questionId,
+            null,
+            attempt.confidence || null
+          );
+        }
+      } catch (e) {
+        log("confidenceInline.recordAttempt error", e);
+      }
+
       logPracticeAttemptSnapshot(attempt);
     });
   }
@@ -429,6 +592,18 @@
         <div class="cz-tts-status">
           Ready. Use “Play Q + answers” or select some text and use “Play selection”.
         </div>
+        <div class="cz-tts-confidence-row">
+          <span class="cz-tts-confidence-label">Confidence:</span>
+          <button type="button" class="cz-tts-btn cz-tts-confidence-btn" data-confidence="guess" aria-pressed="false">
+            Guess
+          </button>
+          <button type="button" class="cz-tts-btn cz-tts-confidence-btn" data-confidence="unsure" aria-pressed="false">
+            Unsure
+          </button>
+          <button type="button" class="cz-tts-btn cz-tts-confidence-btn" data-confidence="sure" aria-pressed="false">
+            Sure
+          </button>
+        </div>
         <div class="cz-tts-analysis">
           <div class="cz-tts-analysis-header">
             <span class="cz-tts-analysis-title">Question Insight</span>
@@ -455,15 +630,27 @@
       const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
       insightFeature.mount(analysisRoot, insightConfig);
 
+      attachConfidenceHandlers(wrapper);
+
       isNewWrapper = true;
     }
 
     const knownId = wrapper.dataset.czQuestionId || "";
-    if (isNewWrapper || knownId !== currentId) {
-      wrapper.dataset.czQuestionId = currentId || "";
+    if (isNewWrapper || (currentId && knownId !== currentId)) {
+      if (currentId) {
+        wrapper.dataset.czQuestionId = currentId;
+      }
       resetAnalysis(wrapper);
       restoreCachedInsightIfAny(wrapper, insightConfig);
     }
+
+    // Keep confidence pill highlight persistent across validation/re-renders.
+    const hydrateKey =
+      currentId ||
+      knownId ||
+      (wrapper.dataset && wrapper.dataset.czConfidenceCacheKey) ||
+      null;
+    hydrateConfidenceFromMemory(wrapper, hydrateKey);
 
     // And make sure footer "Check answer" has our listener.
     attachCheckAnswerListener();
