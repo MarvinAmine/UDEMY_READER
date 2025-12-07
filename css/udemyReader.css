@@ -244,6 +244,153 @@
   color: #ffffff;
 }
 
+/* UC3 – Highlight-to-Explain */
+.cz-explain-bubble {
+  position: absolute;
+  z-index: 9999;
+  background: var(--cz-accent, #2563eb);
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 6px 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  display: flex;
+  gap: 6px;
+}
+.cz-explain-bubble button {
+  background: #ffffff;
+  color: var(--cz-accent, #2563eb);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.cz-explain-bubble button:hover {
+  background: #e5edff;
+}
+
+.cz-explain-container-rel {
+  position: relative;
+}
+
+.cz-deep-dive-card {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+.cz-deep-dive-flyout {
+  position: absolute;
+  max-width: 340px;
+  min-width: 260px;
+  z-index: 9998;
+  width: 90vw;
+  max-width: min(360px, 92vw);
+  max-height: 70vh;
+  overflow: hidden;
+  right: auto;
+  background: #f8fafc;
+}
+.cz-deep-dive-pending {
+  text-align: center;
+  font-weight: 600;
+}
+.cz-deep-dive-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  cursor: move;
+}
+.cz-deep-dive-close {
+  background: none;
+  border: none;
+  color: #0f172a;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+.cz-deep-dive-collapse {
+  background: none;
+  border: none;
+  color: #0f172a;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+.cz-deep-dive-body {
+  margin-top: 6px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.cz-deep-dive-actions {
+  display: flex;
+  gap: 6px;
+}
+.cz-deep-dive-collapsed .cz-deep-dive-body {
+  display: none;
+}
+.cz-deep-dive-collapsed {
+  width: 110px;
+  min-width: 80px;
+  max-width: 130px;
+  padding: 8px;
+  overflow: hidden;
+}
+.cz-deep-dive-collapsed .cz-deep-dive-highlight,
+.cz-deep-dive-collapsed .cz-deep-dive-section,
+.cz-deep-dive-collapsed .cz-deep-dive-rule {
+  display: none;
+}
+.cz-deep-dive-collapsed .cz-deep-dive-header {
+  justify-content: space-between;
+}
+.cz-deep-dive-collapsed .cz-deep-dive-collapse {
+  font-size: 18px;
+}
+.cz-deep-dive-collapsed .cz-deep-dive-title {
+  display: inline-block;
+  max-width: 60px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #0f172a;
+}
+.cz-deep-dive-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: inline-block;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cz-deep-dive-subtitle {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.cz-deep-dive-highlight {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.cz-deep-dive-section {
+  margin: 8px 0;
+}
+.cz-deep-dive-section ul {
+  padding-left: 18px;
+  margin: 4px 0 0 0;
+}
+.cz-deep-dive-rule {
+  margin-top: 8px;
+  font-weight: 500;
+}
+
 /* Summary line under pills */
 .cz-tts-confidence-summary {
   margin-top: 3px;

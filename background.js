@@ -13,6 +13,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleGetCachedAnalysis(msg, sendResponse);
     return true;
   }
+
+  if (msg.type === "CZ_EXPLAIN_HIGHLIGHT") {
+    handleExplainHighlight(msg, sendResponse);
+    return true;
+  }
 });
 
 async function handleAnalyzeQuestion(msg, sendResponse) {
@@ -217,5 +222,170 @@ async function handleGetCachedAnalysis(msg, sendResponse) {
       ok: false,
       error: err && err.message ? err.message : String(err)
     });
+  }
+}
+
+function generateUuid() {
+  if (crypto && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+  }
+
+async function handleExplainHighlight(msg, sendResponse) {
+  try {
+    const highlighted = (msg.highlightedText || "").trim();
+    const context = (msg.contextText || "").trim();
+
+    if (!highlighted || highlighted.length < 2) {
+      sendResponse({ ok: false, error: "EMPTY_SELECTION" });
+      return;
+    }
+
+    if (!context) {
+      sendResponse({ ok: false, error: "NO_CONTEXT" });
+      return;
+    }
+
+    const cfg = await new Promise((resolve) => {
+      chrome.storage.sync.get(["czLlmApiKey", "czLlmModel"], resolve);
+    });
+
+    const apiKey = (cfg.czLlmApiKey || "").trim();
+    const model = (cfg.czLlmModel || "gpt-4o-mini").trim();
+
+    if (!apiKey) {
+      // Still log an event stub so user sees something during dev.
+      const event = {
+        id: generateUuid(),
+        questionId: msg.questionId || null,
+        attemptId: msg.attemptId || null,
+        conceptId: null,
+        highlightedText: highlighted,
+        mode: msg.mode || "unknown",
+        timestamp: Date.now(),
+        savedForReview: !!msg.saveForReview,
+        url: msg.url || null,
+        error: "No LLM API key configured."
+      };
+      await persistConceptHelpEvent(event);
+      console.warn("[UdemyReader][Background][UC3] No API key");
+      sendResponse({ ok: false, error: "No LLM API key configured.", event });
+      return;
+    }
+
+    const prompt =
+      "You are an AWS certification coach. The user highlighted a phrase inside an exam question. " +
+      "Return ONLY JSON with fields: concept_id, concept_name, short_definition, when_to_use (array), " +
+      "when_not_to_use (array), common_confusions (array), sticky_rule. Keep it concise and exam-focused.";
+
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: prompt },
+        {
+          role: "user",
+          content:
+            "Question context:\n" +
+            context +
+            "\n\nHighlighted text:\n" +
+            highlighted +
+            "\n\nRespond with JSON only."
+        }
+      ],
+      temperature: 0.2,
+      response_format: { type: "json_object" }
+    };
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      const error =
+        "HTTP " + resp.status + " " + resp.statusText + " – " + txt;
+      const event = {
+        id: generateUuid(),
+        questionId: msg.questionId || null,
+        attemptId: msg.attemptId || null,
+        conceptId: null,
+        highlightedText: highlighted,
+        mode: msg.mode || "unknown",
+        timestamp: Date.now(),
+        savedForReview: !!msg.saveForReview,
+        url: msg.url || null,
+        error
+      };
+      await persistConceptHelpEvent(event);
+      sendResponse({
+        ok: false,
+        error,
+        event
+      });
+      return;
+    }
+
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content || "{}";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      console.warn("[UdemyReader][Background][UC3] JSON parse error", content);
+      sendResponse({
+        ok: false,
+        error: "LLM JSON parse error",
+        raw: content
+      });
+      return;
+    }
+
+    // Persist ConceptHelpEvent
+    const event = {
+      id: generateUuid(),
+      questionId: msg.questionId || null,
+      attemptId: msg.attemptId || null,
+      conceptId: parsed.concept_id || null,
+      highlightedText: highlighted,
+      mode: msg.mode || "unknown",
+      timestamp: Date.now(),
+      savedForReview: !!msg.saveForReview,
+      url: msg.url || null
+    };
+
+    await persistConceptHelpEvent(event);
+
+    sendResponse({ ok: true, explanation: parsed, event });
+  } catch (err) {
+    console.warn("[UdemyReader][Background][UC3] Error", err);
+    sendResponse({
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+async function persistConceptHelpEvent(event) {
+  if (!chrome?.storage?.local) return;
+  try {
+    const state = await new Promise((resolve) => {
+      chrome.storage.local.get(["czConceptHelpEvents"], resolve);
+    });
+    const events = state.czConceptHelpEvents || [];
+    events.push(event);
+    chrome.storage.local.set({ czConceptHelpEvents: events });
+  } catch (e) {
+    console.warn("[UdemyReader][Background] ConceptHelpEvents write error:", e);
   }
 }
