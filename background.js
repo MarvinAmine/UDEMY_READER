@@ -84,18 +84,22 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
     }
 
     const systemPrompt =
-      "You are an AWS certification exam coach. " +
-      "The user will send you a multiple-choice question (stem + options). " +
-      "You must respond with a single JSON object only, no extra text. " +
-      "Fields: " +
+      "You are an AWS certification exam coach. The user will send you a multiple-choice question (stem + options). " +
+      "Respond with a single JSON object only, no extra text. Fields: " +
       "short_stem (array of 1-3 bullet strings summarizing the scenario), " +
       "key_triggers (array of 2-4 short phrases from the stem that determine the correct answer), " +
       "eliminate_rules (either an object mapping option letters to reasons, or an array of {option, reason}), " +
       "topic_tags (array of 2-6 tags like ['VPC endpoints','NAT gateway','S3 access']), " +
-      "correct_choice (the single best option letter, for example 'A' or 'C'), " +
-      "correct_reason (1-3 short sentences explaining why that option is correct). " +
-      "If you are unsure, choose the most defensible answer and state your reasoning in correct_reason. " +
-      "Focus on clarity and correctness. Temperature should be low. Do not include explanations outside the JSON.";
+      "correct_choices (array of 1..4 option letters), " +
+      "correct_choice (the single best option letter OR the first element of correct_choices), " +
+      "correct_reason (1-3 short sentences explaining why the option(s) are correct). " +
+      "IMPORTANT: If the question is multi-select (e.g., says 'Select TWO', 'Choose 3', 'Select all that apply'), return ALL correct options in correct_choices (do not collapse to one). " +
+      "Never invent extra fields. Temperature low. Return JSON only.";
+
+    const isMulti = /select\s+(all|both|two|three|four|five|[0-9]+)/i.test(text) ||
+      /choose\s+(all|both|two|three|four|five|[0-9]+)/i.test(text) ||
+      /select\s+the\s+two/i.test(text) ||
+      /select\s+the\s+three/i.test(text);
 
     const body = {
       model,
@@ -104,7 +108,11 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
         {
           role: "user",
           content:
-            "Analyze this AWS exam question. Return only JSON as described:\n\n" +
+            "Analyze this AWS exam question. Return only JSON as described." +
+            (isMulti
+              ? " This appears to be MULTI-SELECT; return ALL correct options in correct_choices."
+              : "") +
+            "\n\n" +
             text
         }
       ],
