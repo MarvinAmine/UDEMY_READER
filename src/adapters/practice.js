@@ -163,6 +163,7 @@
     if (!chrome?.runtime?.sendMessage) return;
 
     const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
+    const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
     if (!analysisBody) return;
 
     const textRaw = safeCall(insightConfig.getQuestionText);
@@ -195,6 +196,9 @@
             resp.analysis,
             insightConfig
           );
+          if (analysisRoot && insightFeature.markAnalyzed) {
+            insightFeature.markAnalyzed(analysisRoot, true);
+          }
         }
       );
     } catch (e) {

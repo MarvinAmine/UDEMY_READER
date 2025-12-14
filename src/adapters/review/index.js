@@ -62,6 +62,13 @@
     return getQuestionText(block);
   }
 
+  function getExplanationText(block) {
+    if (dom.extractReviewExplanation) {
+      return dom.extractReviewExplanation(block) || "";
+    }
+    return "";
+  }
+
   function getHighlightRoots(block, action) {
     if (dom.getHighlightRootsReview) {
       return dom.getHighlightRootsReview(block, action);
@@ -89,6 +96,7 @@
     if (!chrome?.runtime?.sendMessage) return;
 
     const analysisBody = wrapper.querySelector(".cz-tts-analysis-body");
+    const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
     if (!analysisBody) return;
 
     const textRaw = insightConfig.getQuestionText
@@ -123,6 +131,9 @@
             resp.analysis,
             insightConfig
           );
+          if (analysisRoot && insightFeature.markAnalyzed) {
+            insightFeature.markAnalyzed(analysisRoot, true);
+          }
         }
       );
     } catch (e) {
@@ -194,6 +205,7 @@
 
     const insightConfig = {
       getQuestionText: () => getQuestionText(block),
+      getExplanationText: () => getExplanationText(block),
       getQuestionId: () => getReviewQuestionId(block),
       getOptionLetters: () => getOptionLetters(block),
       mode: "review"

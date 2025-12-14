@@ -24,8 +24,62 @@
     bodyEl.innerHTML = html;
   }
 
-  function analyzeQuestion(text, questionId, bodyEl, config) {
+  function setAnalyzedLabel(analysisRoot, hasAnalysis) {
+    if (!analysisRoot) return;
+    analysisRoot.dataset.czAnalyzed = hasAnalysis ? "1" : "0";
+    const btn = analysisRoot.querySelector(
+      "button.cz-tts-btn[data-action='analyze-question']"
+    );
+    if (!btn) return;
+    btn.textContent = hasAnalysis
+      ? "↻ Re-analyze question"
+      : "🧠 Analyze question";
+  }
+
+  function checkIfFirstAnalysis(questionId, cb) {
+    if (!questionId || !chrome?.storage?.local) {
+      cb && cb(false);
+      return;
+    }
+
+    try {
+      chrome.storage.local.get(["czQuestionMeta"], (res) => {
+        const meta = res.czQuestionMeta || {};
+        const entry = meta[String(questionId)];
+        const isFirst =
+          !entry || !entry.lastAnalysisAt || entry.lastAnalysisAt === 0;
+        cb && cb(isFirst);
+      });
+    } catch (e) {
+      cb && cb(false);
+    }
+  }
+
+  function insertFirstAnalysisDisclaimer(bodyEl) {
+    if (!bodyEl) return;
+    if (bodyEl.querySelector(".cz-tts-analysis-disclaimer")) return;
+    const note = document.createElement("div");
+    note.className = "cz-tts-analysis-disclaimer";
+    note.textContent =
+      "LLM answers can be wrong. Always re-verify responses first.";
+    bodyEl.appendChild(note);
+  }
+
+  function analyzeQuestion(
+    text,
+    questionId,
+    bodyEl,
+    config,
+    analysisRoot
+  ) {
     const trimmed = (text || "").trim();
+    const explanationText = safeCall(config.getExplanationText);
+    const combinedText =
+      explanationText && String(explanationText).trim().length
+        ? trimmed +
+          "\n\nOfficial explanation:\n" +
+          String(explanationText).trim()
+        : trimmed;
     if (!trimmed) {
       setBodyHtml(
         bodyEl,
@@ -45,7 +99,7 @@
       chrome.runtime.sendMessage(
         {
           type: "CZ_ANALYZE_QUESTION",
-          text: trimmed,
+          text: combinedText,
           questionId: questionId || null
         },
         (resp) => {
@@ -84,9 +138,18 @@
           }
 
           const anay = resp.analysis || {};
+          if (analysisRoot) {
+            setAnalyzedLabel(analysisRoot, true);
+          }
           if (analysisPanel && analysisPanel.applyAnalysisToBody) {
             analysisPanel.applyAnalysisToBody(bodyEl, anay, config);
           }
+
+          checkIfFirstAnalysis(questionId, (isFirst) => {
+            if (isFirst) {
+              insertFirstAnalysisDisclaimer(bodyEl);
+            }
+          });
 
           // CU1-A: persist question metadata + stats when we have an ID
           if (analysisPanel && analysisPanel.recordQuestionAnalysis) {
@@ -132,6 +195,9 @@
     const bodyEl = analysisRoot.querySelector(".cz-tts-analysis-body");
     if (!bodyEl) return;
 
+    // Initialize label based on prior state if any
+    setAnalyzedLabel(analysisRoot, analysisRoot.dataset.czAnalyzed === "1");
+
     analysisRoot.addEventListener("click", (evt) => {
       const btn = evt.target.closest(
         "button.cz-tts-btn[data-action='analyze-question']"
@@ -140,7 +206,7 @@
 
       const text = safeCall(config.getQuestionText);
       const qid = safeCall(config.getQuestionId) || null;
-      analyzeQuestion(text, qid, bodyEl, config);
+      analyzeQuestion(text, qid, bodyEl, config, analysisRoot);
     });
   }
 
@@ -149,7 +215,8 @@
     applyAnalysisToBody:
       analysisPanel && analysisPanel.applyAnalysisToBody
         ? analysisPanel.applyAnalysisToBody
-        : function () {}
+        : function () {},
+    markAnalyzed: setAnalyzedLabel
   };
 
   window.czFeatures.questionInsight = questionInsight;

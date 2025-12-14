@@ -458,6 +458,12 @@
   margin-bottom: 2px;
 }
 
+.cz-tts-analysis-disclaimer {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--cz-fg-soft, #6b7280);
+}
+
 .cz-tts-analysis-tags {
   margin-top: 4px;
   font-size: 11px;
