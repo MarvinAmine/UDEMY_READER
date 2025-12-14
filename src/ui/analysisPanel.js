@@ -39,6 +39,46 @@
     bodyEl.innerHTML = html;
   }
 
+  function normalizeStringArray(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+      return value
+        .map((v) => String(v || "").trim())
+        .filter(Boolean);
+    }
+    const asStr = String(value || "").trim();
+    return asStr ? [asStr] : [];
+  }
+
+  function buildSimplifySnapshot(questionId, analysisJson, extras, mergedTags) {
+    const shortStem = normalizeStringArray(analysisJson.short_stem);
+    const keyTriggers = normalizeStringArray(analysisJson.key_triggers);
+    const noisePhrases = normalizeStringArray(
+      analysisJson.noise_phrases || analysisJson.noise_phrases_hint
+    );
+    const correctChoices = normalizeStringArray(
+      analysisJson.correct_choices || analysisJson.correct_choice
+    ).map((c) => c.toUpperCase());
+
+    const summaryBullets = shortStem.length ? shortStem : [];
+    const decisivePhrases = keyTriggers.length ? keyTriggers : [];
+
+    if (!summaryBullets.length && !decisivePhrases.length) {
+      return null; // nothing to persist for simplification
+    }
+
+    return {
+      questionId: questionId,
+      summaryBullets,
+      decisivePhrases,
+      noisePhrases,
+      topicTags: mergedTags || [],
+      correctChoices,
+      source: (extras && extras.source) || "analysis",
+      lastUpdated: Date.now()
+    };
+  }
+
   /**
    * CU1-A
    * Persist per-question metadata + aggregated stats whenever
@@ -70,10 +110,11 @@
       (extras && extras.source) ? String(extras.source) : "analysis";
 
     chrome.storage.local.get(
-      ["czQuestionStats", "czQuestionMeta"],
+      ["czQuestionStats", "czQuestionMeta", "czQuestionSimplify"],
       (res) => {
         const stats = res.czQuestionStats || {};
         const meta = res.czQuestionMeta || {};
+        const simplifyStore = res.czQuestionSimplify || {};
         const key = String(questionId);
 
         // ---- Aggregated stats for analysis usage (CU1-A) ----
@@ -155,12 +196,24 @@
           lastAnalysisAt: now
         };
 
+        // ---- Persist simplified view for UC5 reuse (from current analysis) ----
+        const simplifySnapshot = buildSimplifySnapshot(
+          key,
+          analysisJson,
+          extras,
+          mergedTags
+        );
+        if (simplifySnapshot) {
+          simplifyStore[key] = simplifySnapshot;
+        }
+
         meta[key] = metaEntry;
 
         chrome.storage.local.set(
           {
             czQuestionStats: stats,
-            czQuestionMeta: meta
+            czQuestionMeta: meta,
+            czQuestionSimplify: simplifyStore
           },
           () => {
             log(

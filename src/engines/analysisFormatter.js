@@ -118,34 +118,7 @@
 
     let html = "";
 
-    // Best answer(s)
-    if (correctChoices.length || correctReason) {
-      if (isMulti) {
-        html += "<strong>Best answers:</strong><ul>";
-        correctChoices.forEach((c) => {
-          html += `<li><strong>Option:</strong> ${escapeHtml(c)}</li>`;
-        });
-        if (correctReason) {
-          html += `<li><strong>Why (set):</strong> ${escapeHtml(
-            correctReason
-          )}</li>`;
-        }
-        html += "</ul>";
-      } else {
-        html += "<strong>Best answer:</strong><ul>";
-        if (primaryChoice) {
-          html += `<li><strong>Option:</strong> ${escapeHtml(
-            primaryChoice
-          )}</li>`;
-        }
-        if (correctReason) {
-          html += `<li><strong>Why:</strong> ${escapeHtml(correctReason)}</li>`;
-        }
-        html += "</ul>";
-      }
-    }
-
-    // Short stem
+    // Short stem (move up for quick scan)
     if (Array.isArray(shortStem)) {
       html += "<strong>Short version:</strong><ul>";
       shortStem.forEach((line) => {
@@ -158,13 +131,31 @@
       html += "</ul>";
     }
 
-    // Key triggers
-    if (keyTriggers.length) {
-      html += "<strong>Key triggers:</strong><ul>";
-      keyTriggers.forEach((t) => {
-        html += `<li>${escapeHtml(String(t))}</li>`;
-      });
-      html += "</ul>";
+    // Best answer(s) (collapsed by default)
+    if (correctChoices.length || correctReason) {
+      if (isMulti) {
+        html += "<details class=\"cz-analysis-section\"><summary>Best answers</summary><ul>";
+        correctChoices.forEach((c) => {
+          html += `<li><strong>Option:</strong> ${escapeHtml(c)}</li>`;
+        });
+        if (correctReason) {
+          html += `<li><strong>Why (set):</strong> ${escapeHtml(
+            correctReason
+          )}</li>`;
+        }
+        html += "</ul></details>";
+      } else {
+        html += "<details class=\"cz-analysis-section\"><summary>Best answer</summary><ul>";
+        if (primaryChoice) {
+          html += `<li><strong>Option:</strong> ${escapeHtml(
+            primaryChoice
+          )}</li>`;
+        }
+        if (correctReason) {
+          html += `<li><strong>Why:</strong> ${escapeHtml(correctReason)}</li>`;
+        }
+        html += "</ul></details>";
+      }
     }
 
     // Eliminate rules
@@ -192,13 +183,13 @@
     }
 
     if (rulesArray.length) {
-      html += "<strong>Why other options are wrong:</strong><ul>";
+      html += "<details class=\"cz-analysis-section\"><summary>Why other options are wrong</summary><ul>";
       rulesArray.forEach(({ opt, reason }) => {
         html += `<li><strong>${escapeHtml(
           String(opt)
         )}:</strong> ${escapeHtml(String(reason))}</li>`;
       });
-      html += "</ul>";
+      html += "</ul></details>";
     }
 
     // Uncovered wrong options
@@ -224,6 +215,16 @@
         });
         html += "</ul>";
       }
+    }
+
+    // Key triggers (collapsed by default, near tags)
+    if (keyTriggers.length) {
+      html += "<details class=\"cz-analysis-section cz-key-triggers\">";
+      html += "<summary>Key triggers</summary><ul>";
+      keyTriggers.forEach((t) => {
+        html += `<li>${escapeHtml(String(t))}</li>`;
+      });
+      html += "</ul></details>";
     }
 
     // Topic tags

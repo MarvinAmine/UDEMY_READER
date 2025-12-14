@@ -104,6 +104,15 @@
     return roots;
   }
 
+  function getAnswerElementsPractice() {
+    const form = getQuestionForm();
+    if (!form) return [];
+    const answers = form.querySelectorAll(
+      ".mc-quiz-answer--answer-body--V-o8d"
+    );
+    return Array.from(answers);
+  }
+
   function computeQuestionHashFromPracticeForm(form) {
     if (!form) return "";
     const promptEl = findPromptElPractice(form);
@@ -188,22 +197,31 @@
             !insightFeature ||
             typeof insightFeature.applyAnalysisToBody !== "function"
           ) {
-            return;
-          }
+        return;
+      }
 
-          insightFeature.applyAnalysisToBody(
-            analysisBody,
-            resp.analysis,
-            insightConfig
-          );
-          if (analysisRoot && insightFeature.markAnalyzed) {
-            insightFeature.markAnalyzed(analysisRoot, true);
-          }
-        }
+      insightFeature.applyAnalysisToBody(
+        analysisBody,
+        resp.analysis,
+        insightConfig
       );
-    } catch (e) {
-      log("restoreCachedInsightIfAny error", e);
+      if (analysisRoot && insightFeature.markAnalyzed) {
+        insightFeature.markAnalyzed(analysisRoot, true);
+      }
+      if (insightFeature.applyHighlightsFromAnalysis) {
+        insightFeature.applyHighlightsFromAnalysis(
+          resp.analysis,
+          insightConfig
+        );
+      }
+      if (analysisRoot && insightFeature.rememberAnalysis) {
+        insightFeature.rememberAnalysis(analysisRoot, resp.analysis, insightConfig);
+      }
     }
+  );
+} catch (e) {
+  log("restoreCachedInsightIfAny error", e);
+}
   }
 
   // ---------------- Confidence helpers (CU2) ----------------
@@ -572,6 +590,8 @@
       getQuestionText: extractPracticeQuestionText,
       getQuestionId: getQuestionIdPractice,
       getOptionLetters: getOptionLettersPractice,
+      getPromptElement: () => findPromptElPractice(getQuestionForm()),
+      getAnswerElements: getAnswerElementsPractice,
       mode: "practice"
     };
 

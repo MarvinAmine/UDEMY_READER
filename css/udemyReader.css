@@ -464,6 +464,93 @@
   color: var(--cz-fg-soft, #6b7280);
 }
 
+.cz-key-phrase {
+  background: #fff3bf;
+  border-radius: 2px;
+  padding: 0 1px;
+  color: #0f172a;
+}
+
+.cz-key-phrase-good {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.cz-key-phrase-bad {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.cz-key-block-good {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.cz-key-block-bad {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.cz-analysis-section {
+  margin-top: 4px;
+}
+
+.cz-key-triggers summary {
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--cz-fg-soft, #6b7280);
+}
+
+.cz-key-triggers ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  color: var(--cz-fg-soft, #6b7280);
+  font-size: 12px;
+}
+
+.cz-why-pill {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--cz-border, #e5e7eb);
+  background: #fff;
+  color: var(--cz-fg, #111827);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.cz-why-pill:hover {
+  background: var(--cz-bg-toolbar-btn-hover, #e5e7eb);
+}
+
+.cz-why-bubble {
+  position: absolute;
+  top: 28px;
+  right: 6px;
+  max-width: 240px;
+  padding: 6px 8px;
+  background: #ffffff;
+  border: 1px solid var(--cz-border, #e5e7eb);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  color: var(--cz-fg, #111827);
+  z-index: 9999;
+  display: none;
+}
+
+.cz-why-bubble.cz-why-visible {
+  display: block;
+}
+
+.cz-answer-why-wrapper {
+  position: relative;
+  padding-right: 70px;
+}
+
 .cz-tts-analysis-tags {
   margin-top: 4px;
   font-size: 11px;

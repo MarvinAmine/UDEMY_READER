@@ -2176,220 +2176,54 @@ confidence: tag.confidence
 
 # UC5 – Stem Simplification & Keyword Highlight
 
-  
-
-**Priority:** P3 (very valuable for comprehension)
-
+**Priority:** P3 (very valuable for comprehension)  
 **Depends on:** UC1-A (or `QuestionMeta`), UC4 (optional for better prompts)
-
-  
 
 ### Goal
 
-  
-
-Make long, wordy questions easier to parse by:
-
-  
-
-1. Summarizing the **core scenario** in 1–3 short bullets.
-
-2. Highlighting **decisive phrases** in the original stem.
-
-  
+Make questions easier to parse by:
+1. Showing a concise, AI-generated summary (short stem) on demand.
+2. Highlighting decisive keywords in the question and answers.
 
 ### Mode Behavior
 
-  
-
-* Enabled in **practice & review**.
-
-* Disabled in **timed** by default (configurable later).
-
-  
+* On-demand: runs when the user clicks **Analyze question** (no auto-run).  
+* Enabled in **practice & review**; disabled in timed by default (configurable).  
+* Keyword highlighting can be toggled in the popup.
 
 ### Trigger
 
-  
-
-* When a question view is initialized (load or navigation) and `QuestionMeta` is available.
-
-  
+* User clicks **Analyze question** (or a cached analysis is restored).
 
 ### Flow
 
-  
-
-1. **Gather Input**
-
-  
-
-Prefer `QuestionMeta`:
-
-  
-
-```ts
-
-const stemText = meta.stemText;
-
-const choices = meta.choices.map(c => c.text);
-
-const conceptIds = getConceptIdsForQuestion(meta.questionId); // from QuestionConcepts, optional
-
-```
-
-  
-
-Build:
-
-  
-
-```ts
-
-type SimplifyRequest = {
-
-questionId: string;
-
-stemText: string;
-
-choices: string[];
-
-conceptIds: string[];
-
-};
-
-```
-
-  
-
-2. **LLM Output Format**
-
-  
-
-```json
-
-{
-
-"summary_bullets": [
-
-"On-premises VMs must be migrated to AWS with minimal changes.",
-
-"Company wants a lift-and-shift approach with minimal downtime."
-
-],
-
-"decisive_phrases": [
-
-"lift-and-shift",
-
-"minimize downtime",
-
-"on-premises virtual machines",
-
-"Linux and Windows operating systems"
-
-],
-
-"noise_phrases": [
-
-"company age",
-
-"US East Coast"
-
-]
-
-}
-
-```
-
-  
-
-3. **Render Simplified Stem**
-
-  
-
-Above the original question:
-
-  
-
-```html
-
-<div class="cz-stem-summary">
-
-<div class="cz-stem-title">Simplified scenario</div>
-
-<ul>
-
-<li>...</li>
-
-<li>...</li>
-
-</ul>
-
-</div>
-
-```
-
-  
-
-4. **Keyword Highlight in Original Stem**
-
-  
-
-* For each `decisive_phrase`, search within the question stem DOM.
-
-  
-
-* Wrap exact matches in:
-
-  
-
-```html
-
-<span class="cz-key-phrase">minimize downtime</span>
-
-```
-
-  
-
-* CSS:
-
-  
-
-```css
-
-.cz-key-phrase {
-
-background: #fff3bf;
-
-border-radius: 2px;
-
-padding: 0 1px;
-
-}
-
-```
-
-  
-
-Implement replacement at the text-node level to avoid breaking links or markup.
-
-  
+1. **LLM request (on Analyze)**  
+   * Input: question text (plus explanation if present).  
+   * Output JSON includes:  
+     * `short_stem`: 1–3 bullets summarizing the scenario.  
+     * `key_triggers`: 3–5 verbatim keywords/short snippets (1–3 words) that capture the core ask; at least one must appear in a correct option.  
+     * `eliminate_rules`: concise reasons per option.  
+     * `bad_phrases`: per option, verbatim phrases that justify elimination.  
+     * `topic_tags`, `correct_choices`, `correct_choice`, `correct_reason`.
+
+2. **Render**  
+   * Analysis panel shows the short stem and other fields; **Key triggers** are collapsed by default and appear just above Tags (light styling).  
+   * Keyword highlighting after Analyze or cached restore:  
+     * Question stem: neutral highlight from `key_triggers`.  
+     * Answers: green highlight on correct options, red on incorrect, using `bad_phrases` when available, otherwise `key_triggers`.
+
+3. **Toggle**  
+   * Popup toggle `Keyword highlighting` (`czHighlightEnabled`, default on).  
+   * Turning it off removes highlights immediately; turning it on reapplies highlights from the last analysis without re-running the LLM.
+
+4. **Persistence**  
+   * Simplified snapshots and last analyses are cached locally so highlights can be reapplied after toggles or cached restores.
 
 ### Edge Cases
 
-  
-
-* If the LLM output is missing or malformed, skip simplification for that question quietly.
-
-* If a decisive phrase appears many times, you may highlight the first N matches to avoid over-highlighting.
-
-  
-
----
-
-  
-
+* If LLM output is missing/malformed, skip highlights quietly.  
+* If no bad phrases for a wrong option, fall back to key triggers.  
+* If highlighting is off, skip spans; re-enable reapplies from cache.
 # UC6 – Post-Question Explanation Compression & Rule Extraction
 
   

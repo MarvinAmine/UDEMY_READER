@@ -83,6 +83,14 @@
     return [];
   }
 
+  function getAnswerElements(block) {
+    if (!block) return [];
+    const answers = block.querySelectorAll(
+      ".answer-result-pane--answer-body--cDGY6"
+    );
+    return Array.from(answers);
+  }
+
   function findPromptEl(block) {
     if (dom.findPromptEl) return dom.findPromptEl(block);
     if (!block) return null;
@@ -133,6 +141,19 @@
           );
           if (analysisRoot && insightFeature.markAnalyzed) {
             insightFeature.markAnalyzed(analysisRoot, true);
+          }
+          if (insightFeature.applyHighlightsFromAnalysis) {
+            insightFeature.applyHighlightsFromAnalysis(
+              resp.analysis,
+              insightConfig
+            );
+          }
+          if (analysisRoot && insightFeature.rememberAnalysis) {
+            insightFeature.rememberAnalysis(
+              analysisRoot,
+              resp.analysis,
+              insightConfig
+            );
           }
         }
       );
@@ -208,6 +229,8 @@
       getExplanationText: () => getExplanationText(block),
       getQuestionId: () => getReviewQuestionId(block),
       getOptionLetters: () => getOptionLetters(block),
+      getPromptElement: () => findPromptEl(block),
+      getAnswerElements: () => getAnswerElements(block),
       mode: "review"
     };
 
