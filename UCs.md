@@ -2183,13 +2183,13 @@ confidence: tag.confidence
 
 Make questions easier to parse by:
 1. Showing a concise, AI-generated summary (short stem) on demand.
-2. Highlighting decisive keywords in the question and answers.
+2. Highlighting decisive keywords in the question and answers, with optional per-answer “Why?” bubbles.
 
 ### Mode Behavior
 
 * On-demand: runs when the user clicks **Analyze question** (no auto-run).  
 * Enabled in **practice & review**; disabled in timed by default (configurable).  
-* Keyword highlighting can be toggled in the popup.
+* Two independent toggles in the popup: `Keyword highlighting` and `Show “Why?” bubbles` (both default on).
 
 ### Trigger
 
@@ -2210,20 +2210,22 @@ Make questions easier to parse by:
    * Analysis panel shows the short stem and other fields; **Key triggers** are collapsed by default and appear just above Tags (light styling).  
    * Keyword highlighting after Analyze or cached restore:  
      * Question stem: neutral highlight from `key_triggers`.  
-     * Answers: green highlight on correct options, red on incorrect, using `bad_phrases` when available, otherwise `key_triggers`.
+     * Answers: green highlight on correct options, red on incorrect, using `bad_phrases` when available, otherwise `key_triggers`.  
+   * “Why?” bubbles: a pill on each answer opens a bubble with the same reasoning as the analysis panel (correct = best-answer reason; incorrect = “why wrong” reasons, falling back to bad phrases).
 
-3. **Toggle**  
-   * Popup toggle `Keyword highlighting` (`czHighlightEnabled`, default on).  
-   * Turning it off removes highlights immediately; turning it on reapplies highlights from the last analysis without re-running the LLM.
+3. **Toggles**  
+   * `Keyword highlighting` (`czHighlightEnabled`, default on) controls spans only. Turning it off removes highlights immediately; turning it on reapplies from cached analysis without re-running the LLM.  
+   * `Show “Why?” bubbles` (`czWhyEnabled`, default on) controls pills/bubbles independently of highlighting. Turning it off removes pills; turning it on rebuilds them from cached analysis.
 
 4. **Persistence**  
-   * Simplified snapshots and last analyses are cached locally so highlights can be reapplied after toggles or cached restores.
+   * Simplified snapshots and last analyses are cached locally so highlights/pills can be reapplied after toggles or cached restores.
 
 ### Edge Cases
 
-* If LLM output is missing/malformed, skip highlights quietly.  
-* If no bad phrases for a wrong option, fall back to key triggers.  
-* If highlighting is off, skip spans; re-enable reapplies from cache.
+* If LLM output is missing/malformed, skip highlights/pills quietly.  
+* If no bad phrases for a wrong option, fall back to key triggers/reasons.  
+* If highlighting is off, skip spans but still show “Why?” bubbles if enabled.  
+* If “Why?” is off, suppress pills even if highlighting is on.
 # UC6 – Post-Question Explanation Compression & Rule Extraction
 
   
