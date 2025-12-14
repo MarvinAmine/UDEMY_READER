@@ -10,21 +10,49 @@ document.addEventListener("DOMContentLoaded", () => {
   const saveLlmBtn = document.getElementById("saveLlm");
   const llmSaveStatusEl = document.getElementById("llmSaveStatus");
 
+  const highlightToggle = document.getElementById("highlightToggle");
+  const highlightStatusEl = document.getElementById("highlightStatus");
+  const whyToggle = document.getElementById("whyToggle");
+  const whyStatusEl = document.getElementById("whyStatus");
+
   const weakTopicsList = document.getElementById("weakTopicsList");
 
   if (!chrome?.storage?.sync) {
     saveStatusEl.textContent = "chrome.storage.sync not available.";
     llmSaveStatusEl.textContent = "chrome.storage.sync not available.";
+    if (highlightStatusEl) {
+      highlightStatusEl.textContent =
+        "chrome.storage.sync not available.";
+    }
+    if (whyStatusEl) {
+      whyStatusEl.textContent = "chrome.storage.sync not available.";
+    }
     return;
   }
 
   // Load existing keys/configs
   chrome.storage.sync.get(
-    ["czGoogleTtsKey", "czLlmApiKey", "czLlmModel"],
+    [
+      "czGoogleTtsKey",
+      "czLlmApiKey",
+      "czLlmModel",
+      "czHighlightEnabled",
+      "czWhyEnabled"
+    ],
     (res) => {
       googleKeyInput.value = res.czGoogleTtsKey || "";
       llmKeyInput.value = res.czLlmApiKey || "";
       llmModelInput.value = res.czLlmModel || "gpt-4o-mini";
+      if (highlightToggle) {
+        highlightToggle.checked =
+          res.czHighlightEnabled === undefined
+            ? true
+            : !!res.czHighlightEnabled;
+      }
+      if (whyToggle) {
+        whyToggle.checked =
+          res.czWhyEnabled === undefined ? true : !!res.czWhyEnabled;
+      }
     }
   );
 
@@ -49,6 +77,38 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
   });
+
+  if (highlightToggle) {
+    highlightToggle.addEventListener("change", () => {
+      const enabled = highlightToggle.checked;
+      chrome.storage.sync.set(
+        { czHighlightEnabled: enabled },
+        () => {
+          if (!highlightStatusEl) return;
+          highlightStatusEl.textContent = enabled
+            ? "Keyword highlighting enabled."
+            : "Keyword highlighting disabled.";
+          setTimeout(
+            () => (highlightStatusEl.textContent = ""),
+            1500
+          );
+        }
+      );
+    });
+  }
+
+  if (whyToggle) {
+    whyToggle.addEventListener("change", () => {
+      const enabled = whyToggle.checked;
+      chrome.storage.sync.set({ czWhyEnabled: enabled }, () => {
+        if (!whyStatusEl) return;
+        whyStatusEl.textContent = enabled
+          ? '"Why?" bubbles enabled.'
+          : '"Why?" bubbles disabled.';
+        setTimeout(() => (whyStatusEl.textContent = ""), 1500);
+      });
+    });
+  }
 
   // Load weak-topic stats from local storage
   if (chrome?.storage?.local) {

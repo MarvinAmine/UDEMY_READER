@@ -87,8 +87,9 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
       "You are an AWS certification exam coach. The user will send you a multiple-choice question (stem + options). " +
       "Respond with a single JSON object only, no extra text. Fields: " +
       "short_stem (array of 1-3 bullet strings summarizing the scenario), " +
-      "key_triggers (array of 2-4 short phrases from the stem that determine the correct answer), " +
-      "eliminate_rules (either an object mapping option letters to reasons, or an array of {option, reason}), " +
+      "key_triggers (array of 3-5 exact keywords or very short 1-3 word snippets copied verbatim from the question or answers that capture the core ask—actors, constraints, and goal; at least one must appear in a correct option; avoid full sentences, do NOT paraphrase), " +
+      "eliminate_rules (object mapping option letters to reasons; keep reasons concise), " +
+      "bad_phrases (object mapping option letters to an array of 1-4 exact phrases copied from that option/stem that justify eliminating it; do NOT paraphrase), " +
       "topic_tags (array of 2-6 tags like ['VPC endpoints','NAT gateway','S3 access']), " +
       "correct_choices (array of 1..4 option letters), " +
       "correct_choice (the single best option letter OR the first element of correct_choices), " +

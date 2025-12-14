@@ -43,6 +43,26 @@
     </div>
 
     <div class="popup-section">
+      <h2 class="popup-section-title">Display</h2>
+      <label class="popup-toggle">
+        <input id="highlightToggle" type="checkbox" class="popup-checkbox">
+        <span>Keyword highlighting</span>
+      </label>
+      <div id="highlightStatus" class="popup-status"></div>
+      <p class="popup-note">
+        Toggle colored keyword highlights on questions and answers.
+      </p>
+      <label class="popup-toggle">
+        <input id="whyToggle" type="checkbox" class="popup-checkbox">
+        <span>Show “Why?” bubbles</span>
+      </label>
+      <div id="whyStatus" class="popup-status"></div>
+      <p class="popup-note">
+        Per-answer “Why?” bubbles stay visible even if highlighting is off.
+      </p>
+    </div>
+
+    <div class="popup-section">
       <h2 class="popup-section-title">Weak topics (local)</h2>
       <ul id="weakTopicsList" class="popup-topics-list"></ul>
       <p class="popup-note">
