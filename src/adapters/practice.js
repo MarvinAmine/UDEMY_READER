@@ -732,18 +732,7 @@
       wrapper.className = "cz-tts-wrapper";
 
       wrapper.innerHTML = `
-        <div class="cz-tts-toolbar">
-          <span class="cz-tts-title">Quiz Reader</span>
-          <button type="button" class="cz-tts-btn" data-action="play-question">▶ Play Q + answers</button>
-          <button type="button" class="cz-tts-btn" data-action="play-selection">▶ Play selection</button>
-          <button type="button" class="cz-tts-btn" data-action="stop" disabled>⏹ Stop</button>
-          <button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">▾ Hide all</button>
-        </div>
-        <div class="cz-tts-status">
-          Ready. Use “Play Q + answers” or select some text and use “Play selection”.
-        </div>
         <div class="cz-tts-confidence-row">
-          <span class="cz-tts-confidence-label">Confidence:</span>
           <button type="button" class="cz-tts-btn cz-tts-confidence-btn" data-confidence="guess" aria-pressed="false">
             Guess
           </button>
@@ -754,15 +743,27 @@
             Sure
           </button>
           <div class="cz-explain-container"></div>
+          <button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">▾ Hide all</button>
         </div>
         <div class="cz-tts-analysis">
           <div class="cz-tts-analysis-header">
             <span class="cz-tts-analysis-title">Question Insight</span>
-            <button type="button" class="cz-tts-btn" data-action="analyze-question">🧠 Analyze question</button>
+            <div class="cz-tts-analysis-actions">
+              <button type="button" class="cz-tts-btn" data-action="analyze-question">🧠 Analyze question</button>
+              <button type="button" class="cz-tts-btn" data-action="toggle-analysis-collapse" aria-expanded="true" aria-label="Collapse analysis">▾</button>
+            </div>
           </div>
           <div class="cz-tts-analysis-body">
             Click “Analyze question” to see a simplified stem, key triggers, and topic tags.
           </div>
+        </div>
+        <div class="cz-tts-toolbar">
+          <button type="button" class="cz-tts-btn" data-action="play-question">▶ Play Q + answers</button>
+          <button type="button" class="cz-tts-btn" data-action="play-selection">▶ Play selection</button>
+          <button type="button" class="cz-tts-btn" data-action="stop" disabled>⏹ Stop</button>
+        </div>
+        <div class="cz-tts-status">
+          Ready. Use “Play Q + answers” or select some text and use “Play selection”.
         </div>
       `;
 

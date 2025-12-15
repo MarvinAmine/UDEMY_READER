@@ -338,6 +338,29 @@
       wrapper.classList.add("cz-tts-collapsed");
     }
 
+    function updateCollapseButtons(targetWrapper) {
+      if (!targetWrapper) return;
+      const text = collapseState.collapsed ? "▸ Show all" : "▾ Hide all";
+      const btns = targetWrapper.querySelectorAll(
+        "button[data-action='toggle-collapse']"
+      );
+      btns.forEach((b) => {
+        b.textContent = text;
+      });
+    }
+
+    updateCollapseButtons(wrapper);
+
+    wrapper.addEventListener("click", (evt) => {
+      const btn = evt.target.closest(
+        "button.cz-tts-btn[data-action='toggle-collapse']"
+      );
+      if (!btn) return;
+      collapseState.collapsed = !collapseState.collapsed;
+      applyCollapseStateToAllWrappers();
+      updateCollapseButtons(wrapper);
+    });
+
     toolbarEl.addEventListener("click", (evt) => {
       const btn = evt.target.closest("button.cz-tts-btn");
       if (!btn) return;
@@ -359,12 +382,7 @@
       }
     });
 
-    const collapseBtn = toolbarEl.querySelector(
-      "button.cz-tts-btn[data-action='toggle-collapse']"
-    );
-    if (collapseBtn) {
-      collapseBtn.textContent = collapseState.collapsed ? "▸ Show all" : "▾ Hide all";
-    }
+    updateCollapseButtons(wrapper);
   }
 
   const quizReader = { mount };

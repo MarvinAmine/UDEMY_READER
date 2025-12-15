@@ -64,6 +64,26 @@
       : "🧠 Analyze question";
   }
 
+  function setAnalysisCollapsed(analysisRoot, collapsed) {
+    if (!analysisRoot) return;
+    const isCollapsed = !!collapsed;
+    analysisRoot.classList.toggle(
+      "cz-tts-analysis-collapsed",
+      isCollapsed
+    );
+    const toggleBtn = analysisRoot.querySelector(
+      "button.cz-tts-btn[data-action='toggle-analysis-collapse']"
+    );
+    if (toggleBtn) {
+      toggleBtn.textContent = isCollapsed ? "▸" : "▾";
+      toggleBtn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+      toggleBtn.setAttribute(
+        "aria-label",
+        isCollapsed ? "Expand analysis" : "Collapse analysis"
+      );
+    }
+  }
+
   function normalizePhraseList(raw, allowShort) {
     if (!raw) return [];
     if (Array.isArray(raw)) {
@@ -550,12 +570,28 @@
 
     // Initialize label based on prior state if any
     setAnalyzedLabel(analysisRoot, analysisRoot.dataset.czAnalyzed === "1");
+    setAnalysisCollapsed(
+      analysisRoot,
+      analysisRoot.classList.contains("cz-tts-analysis-collapsed")
+    );
 
     analysisRoot.addEventListener("click", (evt) => {
+      const collapseBtn = evt.target.closest(
+        "button.cz-tts-btn[data-action='toggle-analysis-collapse']"
+      );
+      if (collapseBtn) {
+        const shouldCollapse = !analysisRoot.classList.contains(
+          "cz-tts-analysis-collapsed"
+        );
+        setAnalysisCollapsed(analysisRoot, shouldCollapse);
+        return;
+      }
+
       const btn = evt.target.closest(
         "button.cz-tts-btn[data-action='analyze-question']"
       );
       if (!btn) return;
+      setAnalysisCollapsed(analysisRoot, false);
 
       const text = safeCall(config.getQuestionText);
       const qid = safeCall(config.getQuestionId) || null;

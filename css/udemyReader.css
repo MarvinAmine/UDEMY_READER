@@ -46,8 +46,8 @@
 /* Collapsed state: hide status + analysis + confidence block, keep toolbar visible */
 .cz-tts-wrapper.cz-tts-collapsed .cz-tts-status,
 .cz-tts-wrapper.cz-tts-collapsed .cz-tts-analysis,
-.cz-tts-wrapper.cz-tts-collapsed .cz-tts-confidence-row,
-.cz-tts-wrapper.cz-tts-collapsed .cz-tts-confidence-root {
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-summary-row,
+.cz-tts-wrapper.cz-tts-collapsed .cz-tts-toolbar {
   display: none;
 }
 
@@ -65,6 +65,7 @@
 .cz-tts-title {
   font-weight: 600;
   margin-right: 6px;
+  font-size: 13px;
 }
 
 .cz-tts-btn {
@@ -111,10 +112,10 @@
 
 .cz-tts-confidence-row {
   margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--cz-border, #e5e7eb);
+  padding-top: 0;
+  border-top: 0;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   font-size: 12px;
@@ -166,8 +167,8 @@
 /* Root block that JS mounts into (used by both practice & review) */
 .cz-tts-confidence-root {
   margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--cz-border, #e5e7eb);
+  padding-top: 0;
+  border-top: 0;
   font-size: 12px;
 }
 
@@ -179,7 +180,7 @@
 /* Pills container */
 .cz-tts-confidence-pills {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   font-size: 12px;
@@ -215,6 +216,7 @@
 .cz-tts-confidence-pill:hover {
   background: var(--cz-pill-bg-hover, #e5e7eb);
   color: var(--cz-fg, #111827);
+  border-color: var(--cz-border-strong, #cbd5e1);
 }
 
 /* Focus for keyboard users */
@@ -440,8 +442,27 @@
 }
 
 .cz-tts-analysis-title {
+  font-weight: 500;
+  color: var(--cz-fg, #111827);
+  font-size: 13px;
+}
+
+/* Align heading styles across the toolbar title and confidence label */
+.cz-tts-title,
+.cz-tts-confidence-label {
   font-weight: 600;
   color: var(--cz-fg, #111827);
+  font-family: inherit;
+}
+
+.cz-tts-analysis-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cz-tts-analysis-collapsed .cz-tts-analysis-body {
+  display: none;
 }
 
 .cz-tts-analysis-body {
@@ -565,6 +586,29 @@
   margin-left: auto;
   flex: 1 1 0;
   min-width: 160px;
+}
+
+.cz-tts-wrapper.cz-tts-review .cz-tts-confidence-row {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+  gap: 8px;
+}
+
+.cz-tts-confidence-row .cz-tts-collapse-toggle {
+  margin-left: auto;
+}
+
+.cz-tts-summary-row {
+  font-size: 12px;
+  color: var(--cz-fg-muted, #4b5563);
+  margin: 4px 0;
+}
+
+.cz-tts-toolbar {
+  border-top: 1px solid var(--cz-border, #e5e7eb);
+  margin-top: 8px;
+  padding-top: 6px;
 }
 .cz-explain-pill {
   font-size: 11px;

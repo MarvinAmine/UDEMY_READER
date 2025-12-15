@@ -310,8 +310,33 @@
     const wrapper = document.createElement("div");
     wrapper.className = "cz-tts-wrapper cz-tts-review";
     wrapper.innerHTML =
+      '<div class="cz-tts-confidence-row">' +
+      '<div class="cz-tts-confidence-root"></div>' +
+      '<div class="cz-explain-container"></div>' +
+      '<button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">' +
+      "▾ Hide all" +
+      "</button>" +
+      "</div>" +
+      '<div class="cz-tts-summary-row">' +
+      '<div class="cz-tts-confidence-summary"></div>' +
+      "</div>" +
+      '<div class="cz-tts-analysis">' +
+      '<div class="cz-tts-analysis-header">' +
+      '<span class="cz-tts-analysis-title">Question Insight</span>' +
+      '<div class="cz-tts-analysis-actions">' +
+      '<button type="button" class="cz-tts-btn" data-action="analyze-question">' +
+      "🧠 Re-analyze question" +
+      "</button>" +
+      '<button type="button" class="cz-tts-btn" data-action="toggle-analysis-collapse" aria-expanded="true" aria-label="Collapse analysis">' +
+      "▾" +
+      "</button>" +
+      "</div>" +
+      "</div>" +
+      '<div class="cz-tts-analysis-body">' +
+      "Click “Analyze question” to see a simplified stem, key triggers, and topic tags." +
+      "</div>" +
+      "</div>" +
       '<div class="cz-tts-toolbar">' +
-      '<span class="cz-tts-title">Quiz Reader</span>' +
       '<button type="button" class="cz-tts-btn" data-action="play-question">' +
       "▶ Play Q + answers" +
       "</button>" +
@@ -324,24 +349,9 @@
       '<button type="button" class="cz-tts-btn" data-action="stop" disabled>' +
       "⏹ Stop" +
       "</button>" +
-      '<button type="button" class="cz-tts-btn cz-tts-collapse-toggle" data-action="toggle-collapse">' +
-      "▾ Hide all" +
-      "</button>" +
       "</div>" +
       '<div class="cz-tts-status">' +
       'Ready. Use “Play Q + answers” or “Play explanation”, or select text and use “Play selection”.' +
-      "</div>" +
-      '<div class="cz-tts-confidence-root"></div>' +
-      '<div class="cz-tts-analysis">' +
-      '<div class="cz-tts-analysis-header">' +
-      '<span class="cz-tts-analysis-title">Question Insight</span>' +
-      '<button type="button" class="cz-tts-btn" data-action="analyze-question">' +
-      "🧠 Analyze question" +
-      "</button>" +
-      "</div>" +
-      '<div class="cz-tts-analysis-body">' +
-      "Click “Analyze question” to see a simplified stem, key triggers, and topic tags." +
-      "</div>" +
       "</div>";
 
     promptEl.insertAdjacentElement("afterend", wrapper);
@@ -400,6 +410,15 @@
     attachExplanationSummarizer(block, explainTarget || null);
 
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
+
+    // Move confidence summary into the dedicated summary row, if present.
+    const summaryRow = wrapper.querySelector(".cz-tts-summary-row");
+    const summaryEl = wrapper.querySelector(
+      ".cz-tts-confidence-summary"
+    );
+    if (summaryRow && summaryEl && summaryEl.parentElement !== summaryRow) {
+      summaryRow.appendChild(summaryEl);
+    }
 
     if (logInjection) {
       log(

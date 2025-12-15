@@ -663,7 +663,6 @@
 
       root.innerHTML =
         '<div class="cz-tts-confidence-pills">' +
-        '<span class="cz-tts-confidence-label">Confidence:</span>' +
         '<button type="button" class="cz-tts-confidence-pill" data-cz-confidence="guess">Guess</button>' +
         '<button type="button" class="cz-tts-confidence-pill" data-cz-confidence="unsure">Unsure</button>' +
         '<button type="button" class="cz-tts-confidence-pill" data-cz-confidence="sure">Sure</button>' +
