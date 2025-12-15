@@ -18,6 +18,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleExplainHighlight(msg, sendResponse);
     return true;
   }
+
+  if (msg.type === "CZ_COMPRESS_EXPLANATION") {
+    handleCompressExplanation(msg, sendResponse);
+    return true;
+  }
 });
 
 async function handleAnalyzeQuestion(msg, sendResponse) {
@@ -378,6 +383,134 @@ async function handleExplainHighlight(msg, sendResponse) {
     sendResponse({ ok: true, explanation: parsed, event });
   } catch (err) {
     console.warn("[UdemyReader][Background][UC3] Error", err);
+    sendResponse({
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+async function handleCompressExplanation(msg, sendResponse) {
+  try {
+    const context = msg.context || {};
+    const questionId = context.questionId ? String(context.questionId) : null;
+    const cacheKey = questionId ? "cx:" + questionId : null;
+
+    // Cache check
+    if (cacheKey && chrome?.storage?.local) {
+      try {
+        const res = await new Promise((resolve) => {
+          chrome.storage.local.get(["czExplainCache"], resolve);
+        });
+        const cache = res.czExplainCache || {};
+        if (cache[cacheKey]) {
+          sendResponse({ ok: true, summary: cache[cacheKey], cached: true });
+          return;
+        }
+      } catch (_) {}
+    }
+
+    const cfg = await new Promise((resolve) => {
+      chrome.storage.sync.get(["czLlmApiKey", "czLlmModel"], resolve);
+    });
+    const apiKey = (cfg.czLlmApiKey || "").trim();
+    const model = (cfg.czLlmModel || "gpt-4o-mini").trim();
+    if (!apiKey) {
+      sendResponse({ ok: false, error: "No LLM API key configured." });
+      return;
+    }
+
+    const {
+      stemText = "",
+      choices = [],
+      chosenIndices = [],
+      correctIndices = [],
+      explanationText = "",
+      confidence = null,
+      conceptIds = []
+    } = context;
+
+    const systemPrompt =
+      "You compress Udemy/AWS exam explanations. Return ONLY JSON with fields: " +
+      "user_choice_summary, correct_choice_summary, elimination_clues (array), sticky_rule. " +
+      "Keep it concise and exam-focused.";
+
+    const choiceText = Array.isArray(choices)
+      ? choices
+          .map((c, idx) => {
+            const label =
+              (c && c.label) ||
+              String.fromCharCode("A".charCodeAt(0) + idx);
+            const text = (c && c.text) || c || "";
+            return `${label}. ${text}`;
+          })
+          .join("\n")
+      : "";
+
+    const userPrompt =
+      `Question stem:\n${stemText}\n\nChoices:\n${choiceText}\n\n` +
+      `Chosen indices: ${JSON.stringify(chosenIndices)}\n` +
+      `Correct indices: ${JSON.stringify(correctIndices)}\n` +
+      `Confidence: ${confidence || "null"}\n` +
+      `Concept IDs: ${Array.isArray(conceptIds) ? conceptIds.join(", ") : ""}\n\n` +
+      `Official/observed explanation:\n${explanationText || "(none)"}\n\n` +
+      "Return JSON only.";
+
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.2,
+      response_format: { type: "json_object" }
+    };
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      sendResponse({
+        ok: false,
+        error: "HTTP " + resp.status + " " + resp.statusText + " – " + txt
+      });
+      return;
+    }
+
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content || "{}";
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      sendResponse({
+        ok: false,
+        error: "LLM did not return valid JSON.",
+        raw: content
+      });
+      return;
+    }
+
+    if (cacheKey && chrome?.storage?.local) {
+      try {
+        const res = await new Promise((resolve) => {
+          chrome.storage.local.get(["czExplainCache"], resolve);
+        });
+        const cache = res.czExplainCache || {};
+        cache[cacheKey] = parsed;
+        chrome.storage.local.set({ czExplainCache: cache });
+      } catch (_) {}
+    }
+
+    sendResponse({ ok: true, summary: parsed });
+  } catch (err) {
     sendResponse({
       ok: false,
       error: err && err.message ? err.message : String(err)
