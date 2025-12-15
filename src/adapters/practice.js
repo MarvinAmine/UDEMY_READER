@@ -288,6 +288,22 @@
       statusEl.textContent =
         'Ready. Use “Play Q + answers” or select some text and use “Play selection”.';
     }
+
+    const analysisRoot = wrapper.querySelector(".cz-tts-analysis");
+    const insightFeature =
+      window.czFeatures && window.czFeatures.questionInsight;
+    if (analysisRoot) {
+      analysisRoot.dataset.czAnalyzed = "0";
+      const analyzeBtn = analysisRoot.querySelector(
+        "button.cz-tts-btn[data-action='analyze-question']"
+      );
+      if (analyzeBtn) {
+        analyzeBtn.textContent = "🧠 Analyze question";
+      }
+      if (insightFeature && typeof insightFeature.markAnalyzed === "function") {
+        insightFeature.markAnalyzed(analysisRoot, false);
+      }
+    }
   }
 
   function restoreCachedInsightIfAny(wrapper, insightConfig) {
@@ -342,6 +358,12 @@
               resp.analysis,
               insightConfig
             );
+            if (
+              analysisRoot &&
+              typeof insightFeature.markAnalyzed === "function"
+            ) {
+              insightFeature.markAnalyzed(analysisRoot, true);
+            }
           }
         }
       );
@@ -388,9 +410,9 @@
   function getConfidenceCacheKey(wrapper) {
     if (!wrapper) return null;
     if (wrapper.dataset) {
-      const existing =
-        wrapper.dataset.czConfidenceCacheKey ||
-        wrapper.dataset.czQuestionId;
+      const qid = wrapper.dataset.czQuestionId;
+      if (qid) return String(qid);
+      const existing = wrapper.dataset.czConfidenceCacheKey;
       if (existing) return String(existing);
     }
 
@@ -791,6 +813,7 @@
     if (isNewWrapper || (currentId && knownId !== currentId)) {
       if (currentId) {
         wrapper.dataset.czQuestionId = currentId;
+        wrapper.dataset.czConfidenceCacheKey = currentId;
       }
       resetAnalysis(wrapper);
       restoreCachedInsightIfAny(wrapper, insightConfig);
