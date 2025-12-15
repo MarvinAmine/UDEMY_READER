@@ -556,3 +556,68 @@
   font-size: 11px;
   color: var(--cz-fg-soft, #6b7280);
 }
+
+/* UC6 Summarize (inline pill + wide bubble) */
+.cz-explain-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex: 1 1 0;
+  min-width: 160px;
+}
+
+.cz-explain-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--cz-border, #e5e7eb);
+  background: #fff;
+  color: var(--cz-fg, #111827);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.cz-explain-pill:hover {
+  background: var(--cz-bg-toolbar-btn-hover, #e5e7eb);
+}
+
+.cz-explain-bubble-inline {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
+  max-width: 100%;
+  min-width: 320px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid var(--cz-border, #e5e7eb);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  color: var(--cz-fg, #111827);
+  z-index: 5;
+  display: none;
+}
+
+.cz-explain-bubble-inline strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.cz-explain-bubble-inline ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+
+.cz-explain-bubble-inline li {
+  margin-bottom: 2px;
+}
+
+.cz-explain-bubble-inline.cz-explain-visible {
+  display: block;
+}
