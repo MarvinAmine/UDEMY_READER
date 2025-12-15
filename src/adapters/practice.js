@@ -129,6 +129,20 @@
     return hashString ? hashString(rawKey) : rawKey;
   }
 
+  function getExplanationElementPractice() {
+    const selectors = [
+      "#overall-explanation",
+      '[data-purpose="overall-explanation"]',
+      ".question-explanation--container--",
+      ".question-explanation--question-explanation--"
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
   function getQuestionIdPractice(formOverride) {
     const form = formOverride || getQuestionForm();
     if (!form) return null;
@@ -150,6 +164,114 @@
     return Array.from(answerEls).map((_, idx) =>
       String.fromCharCode(65 + idx)
     );
+  }
+
+  // UC6 – Explanation compression (Summarize pill)
+  function attachExplanationSummarizer(form, targetEl) {
+    const expl = getExplanationElementPractice();
+    if (!expl || expl.dataset.czExplainMounted === "1") return;
+
+    const stemText = extractPracticeQuestionText() || "";
+    const optionLetters = getOptionLettersPractice();
+    const answerEls = getAnswerElementsPractice();
+    const choices = answerEls.map((el, idx) => ({
+      label:
+        optionLetters[idx] ||
+        String.fromCharCode("A".charCodeAt(0) + idx),
+      text: (el && el.innerText) || ""
+    }));
+
+    const context = {
+      questionId: getQuestionIdPractice(form) || null,
+      stemText,
+      choices,
+      chosenIndices: [],
+      correctIndices: [],
+      explanationText: expl.innerText || "",
+      confidence: getCurrentConfidence(form),
+      conceptIds: []
+    };
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "cz-explain-pill";
+    pill.textContent = "Summarize";
+
+    const bubble = document.createElement("div");
+    bubble.className = "cz-explain-bubble-inline";
+
+    function renderSummary(summary) {
+      const s = summary || {};
+      const clues = Array.isArray(s.elimination_clues)
+        ? s.elimination_clues
+        : [];
+      bubble.innerHTML =
+        `<strong>Why your choice was wrong:</strong><p>${escapeHtml(
+          s.user_choice_summary || "N/A"
+        )}</p>` +
+        `<strong>Why correct is right:</strong><p>${escapeHtml(
+          s.correct_choice_summary || "N/A"
+        )}</p>` +
+        `<strong>How to eliminate:</strong><ul>${clues
+          .map((c) => `<li>${escapeHtml(String(c))}</li>`)
+          .join("")}</ul>` +
+        `<strong>Rule:</strong><p>${escapeHtml(s.sticky_rule || "N/A")}</p>`;
+    }
+
+    let cachedSummary = null;
+
+    pill.addEventListener("click", () => {
+      const visible = bubble.classList.contains("cz-explain-visible");
+      if (visible) {
+        bubble.classList.remove("cz-explain-visible");
+        return;
+      }
+
+      if (cachedSummary) {
+        renderSummary(cachedSummary);
+        bubble.classList.add("cz-explain-visible");
+        return;
+      }
+
+      bubble.textContent = "Summarizing explanation…";
+      bubble.classList.add("cz-explain-visible");
+      try {
+        chrome.runtime.sendMessage(
+          { type: "CZ_COMPRESS_EXPLANATION", context },
+          (resp) => {
+            if (!resp || !resp.ok || !resp.summary) {
+              bubble.textContent =
+                (resp && resp.error) ||
+                "Could not summarize. Check API key.";
+              return;
+            }
+            cachedSummary = resp.summary;
+            renderSummary(cachedSummary);
+          }
+        );
+      } catch (e) {
+        bubble.textContent = "Summarize failed.";
+      }
+    });
+
+    const wrap = targetEl || document.createElement("div");
+    if (!targetEl) {
+      wrap.className = "cz-explain-container";
+    }
+    wrap.appendChild(pill);
+    wrap.appendChild(bubble);
+
+    expl.dataset.czExplainMounted = "1";
+    if (!targetEl && expl.parentElement) {
+      expl.parentElement.appendChild(wrap);
+    }
   }
 
   function resetAnalysis(wrapper) {
@@ -197,31 +319,35 @@
             !insightFeature ||
             typeof insightFeature.applyAnalysisToBody !== "function"
           ) {
-        return;
-      }
+            return;
+          }
 
-      insightFeature.applyAnalysisToBody(
-        analysisBody,
-        resp.analysis,
-        insightConfig
+          insightFeature.applyAnalysisToBody(
+            analysisBody,
+            resp.analysis,
+            insightConfig
+          );
+          if (analysisRoot && insightFeature.markAnalyzed) {
+            insightFeature.markAnalyzed(analysisRoot, true);
+          }
+          if (insightFeature.applyHighlightsFromAnalysis) {
+            insightFeature.applyHighlightsFromAnalysis(
+              resp.analysis,
+              insightConfig
+            );
+          }
+          if (analysisRoot && insightFeature.rememberAnalysis) {
+            insightFeature.rememberAnalysis(
+              analysisRoot,
+              resp.analysis,
+              insightConfig
+            );
+          }
+        }
       );
-      if (analysisRoot && insightFeature.markAnalyzed) {
-        insightFeature.markAnalyzed(analysisRoot, true);
-      }
-      if (insightFeature.applyHighlightsFromAnalysis) {
-        insightFeature.applyHighlightsFromAnalysis(
-          resp.analysis,
-          insightConfig
-        );
-      }
-      if (analysisRoot && insightFeature.rememberAnalysis) {
-        insightFeature.rememberAnalysis(analysisRoot, resp.analysis, insightConfig);
-      }
+    } catch (e) {
+      log("restoreCachedInsightIfAny error", e);
     }
-  );
-} catch (e) {
-  log("restoreCachedInsightIfAny error", e);
-}
   }
 
   // ---------------- Confidence helpers (CU2) ----------------
@@ -627,6 +753,7 @@
           <button type="button" class="cz-tts-btn cz-tts-confidence-btn" data-confidence="sure" aria-pressed="false">
             Sure
           </button>
+          <div class="cz-explain-container"></div>
         </div>
         <div class="cz-tts-analysis">
           <div class="cz-tts-analysis-header">
@@ -678,6 +805,9 @@
 
     // And make sure footer "Check answer" has our listener.
     attachCheckAnswerListener();
+
+    const explainTarget = wrapper.querySelector(".cz-explain-container");
+    attachExplanationSummarizer(form, explainTarget || null);
   }
 
   function setupObserver() {

@@ -91,6 +91,21 @@
     return Array.from(answers);
   }
 
+  function getExplanationElement(block) {
+    if (!block) return null;
+    const selectors = [
+      "#overall-explanation",
+      '[data-purpose="overall-explanation"]',
+      ".question-explanation--container--",
+      ".question-explanation--question-explanation--"
+    ];
+    for (const sel of selectors) {
+      const el = block.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
   function findPromptEl(block) {
     if (dom.findPromptEl) return dom.findPromptEl(block);
     if (!block) return null;
@@ -98,6 +113,114 @@
       block.querySelector("#question-prompt") ||
       block.querySelector(".result-pane--question-format--PBvdY")
     );
+  }
+
+  // UC6 – Explanation compression (Summarize pill)
+  function attachExplanationSummarizer(block, targetEl) {
+    const expl = getExplanationElement(block);
+    if (!expl || expl.dataset.czExplainMounted === "1") return;
+
+    const stemText = getQuestionText(block) || "";
+    const optionLetters = getOptionLetters(block);
+    const answerEls = getAnswerElements(block);
+    const choices = answerEls.map((el, idx) => ({
+      label:
+        optionLetters[idx] ||
+        String.fromCharCode("A".charCodeAt(0) + idx),
+      text: (el && el.innerText) || ""
+    }));
+
+    const context = {
+      questionId: getReviewQuestionId(block) || null,
+      stemText,
+      choices,
+      chosenIndices: [],
+      correctIndices: [],
+      explanationText: getExplanationText(block) || expl.innerText || "",
+      confidence: null,
+      conceptIds: []
+    };
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "cz-explain-pill";
+    pill.textContent = "Summarize";
+
+    const bubble = document.createElement("div");
+    bubble.className = "cz-explain-bubble-inline";
+
+    function renderSummary(summary) {
+      const s = summary || {};
+      const clues = Array.isArray(s.elimination_clues)
+        ? s.elimination_clues
+        : [];
+      bubble.innerHTML =
+        `<strong>Why your choice was wrong:</strong><p>${escapeHtml(
+          s.user_choice_summary || "N/A"
+        )}</p>` +
+        `<strong>Why correct is right:</strong><p>${escapeHtml(
+          s.correct_choice_summary || "N/A"
+        )}</p>` +
+        `<strong>How to eliminate:</strong><ul>${clues
+          .map((c) => `<li>${escapeHtml(String(c))}</li>`)
+          .join("")}</ul>` +
+        `<strong>Rule:</strong><p>${escapeHtml(s.sticky_rule || "N/A")}</p>`;
+    }
+
+    let cachedSummary = null;
+
+    pill.addEventListener("click", () => {
+      const visible = bubble.classList.contains("cz-explain-visible");
+      if (visible) {
+        bubble.classList.remove("cz-explain-visible");
+        return;
+      }
+
+      if (cachedSummary) {
+        renderSummary(cachedSummary);
+        bubble.classList.add("cz-explain-visible");
+        return;
+      }
+
+      bubble.textContent = "Summarizing explanation…";
+      bubble.classList.add("cz-explain-visible");
+      try {
+        chrome.runtime.sendMessage(
+          { type: "CZ_COMPRESS_EXPLANATION", context },
+          (resp) => {
+            if (!resp || !resp.ok || !resp.summary) {
+              bubble.textContent =
+                (resp && resp.error) ||
+                "Could not summarize. Check API key.";
+              return;
+            }
+            cachedSummary = resp.summary;
+            renderSummary(cachedSummary);
+          }
+        );
+      } catch (e) {
+        bubble.textContent = "Summarize failed.";
+      }
+    });
+
+    const wrap = targetEl || document.createElement("div");
+    if (!targetEl) {
+      wrap.className = "cz-explain-container";
+    }
+    wrap.appendChild(pill);
+    wrap.appendChild(bubble);
+
+    expl.dataset.czExplainMounted = "1";
+    if (!targetEl && expl.parentElement) {
+      expl.parentElement.appendChild(wrap);
+    }
   }
 
   function restoreCachedInsightForBlock(block, wrapper, insightConfig) {
@@ -258,6 +381,23 @@
         mode: "review"
       });
     }
+
+    let explainTarget = wrapper.querySelector(".cz-explain-container");
+    if (!explainTarget) {
+      const pills = wrapper.querySelector(".cz-tts-confidence-pills");
+      explainTarget = document.createElement("div");
+      explainTarget.className = "cz-explain-container";
+      if (pills) {
+        pills.appendChild(explainTarget);
+      } else {
+        const confRoot = wrapper.querySelector(".cz-tts-confidence-root");
+        if (confRoot) {
+          confRoot.appendChild(explainTarget);
+        }
+      }
+    }
+
+    attachExplanationSummarizer(block, explainTarget || null);
 
     restoreCachedInsightForBlock(block, wrapper, insightConfig);
 
