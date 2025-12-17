@@ -106,6 +106,36 @@
     return null;
   }
 
+  function deriveAnswerIndices(block, answerEls) {
+    const chosen = [];
+    const correct = [];
+
+    (answerEls || []).forEach((answerEl, idx) => {
+      const pane =
+        answerEl.closest("[data-purpose='answer']") ||
+        answerEl.closest(".result-pane--answer-result-pane--Niazi") ||
+        answerEl.parentElement;
+      if (!pane) return;
+
+      const className = pane.className || "";
+      if (/answer-result-pane--answer-correct--/i.test(className)) {
+        correct.push(idx);
+      }
+
+      const userLabel = pane.querySelector(
+        "[data-purpose='answer-result-header-user-label']"
+      );
+      const labelText = (userLabel && userLabel.textContent) || "";
+      const isUserSelection =
+        /your/i.test(labelText) || /selected/i.test(labelText);
+      if (isUserSelection) {
+        chosen.push(idx);
+      }
+    });
+
+    return { chosenIndices: chosen, correctIndices: correct };
+  }
+
   function findPromptEl(block) {
     if (dom.findPromptEl) return dom.findPromptEl(block);
     if (!block) return null;
@@ -123,6 +153,10 @@
     const stemText = getQuestionText(block) || "";
     const optionLetters = getOptionLetters(block);
     const answerEls = getAnswerElements(block);
+    const { chosenIndices, correctIndices } = deriveAnswerIndices(
+      block,
+      answerEls
+    );
     const choices = answerEls.map((el, idx) => ({
       label:
         optionLetters[idx] ||
@@ -130,12 +164,63 @@
       text: (el && el.innerText) || ""
     }));
 
+    function computeIsCorrect() {
+      if (!chosenIndices.length || !correctIndices.length) return null;
+      const chosenSet = new Set(chosenIndices);
+      const correctSet = new Set(correctIndices);
+      if (chosenSet.size !== correctSet.size) return false;
+      for (const v of chosenSet) {
+        if (!correctSet.has(v)) return false;
+      }
+      return true;
+    }
+
+    function extractContextAndAsk(text) {
+      const EMPTY = { context: "", ask: "" };
+      if (!text) return EMPTY;
+
+      const normalized = String(text).replace(/\s+/g, " ").trim();
+      if (!normalized) return EMPTY;
+
+      const sentences = normalized
+        .split(/(?<=[\.\?\!])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!sentences.length) return EMPTY;
+
+      const questionIdx = sentences.findIndex((s) =>
+        /(\?|^which\b|^what\b|^how\b|^select\b|^choose\b|^identify\b)/i.test(s)
+      );
+
+      let ask = "";
+      let contextStr = "";
+
+      if (questionIdx >= 0) {
+        ask = sentences[questionIdx];
+        contextStr = sentences
+          .filter((_, idx) => idx !== questionIdx)
+          .slice(0, 2)
+          .join(" ");
+      } else {
+        // Fallback: last sentence is treated as the ask if it looks imperative.
+        const last = sentences[sentences.length - 1] || "";
+        const looksLikeAsk = /should|which|what|how|select|choose/i.test(last);
+        ask = looksLikeAsk ? last : "";
+        contextStr = sentences.slice(0, 2).join(" ");
+      }
+
+      return {
+        context: contextStr || "",
+        ask: ask || ""
+      };
+    }
+
     const context = {
       questionId: getReviewQuestionId(block) || null,
       stemText,
       choices,
-      chosenIndices: [],
-      correctIndices: [],
+      chosenIndices,
+      correctIndices,
       explanationText: getExplanationText(block) || expl.innerText || "",
       confidence: null,
       conceptIds: []
@@ -161,9 +246,35 @@
       const clues = Array.isArray(s.elimination_clues)
         ? s.elimination_clues
         : [];
+      const isCorrect = computeIsCorrect();
+      const { context: ctxText, ask: askText } = extractContextAndAsk(stemText);
+
+      // Derive a friendly user-choice blurb as fallback
+      let userChoiceText = s.user_choice_summary || "";
+      if (!userChoiceText && chosenIndices.length) {
+        const firstIdx = chosenIndices[0];
+        const choice = choices[firstIdx];
+        if (choice && choice.text) {
+          userChoiceText = `You chose ${choice.label || ""}: ${choice.text}`;
+        }
+      }
+      if (!userChoiceText) {
+        userChoiceText = isCorrect ? "You chose the correct answer." : "We couldn't capture your selection.";
+      }
+
+      const userHeading = isCorrect
+        ? "Why your choice was right:"
+        : "Why your choice was wrong:";
+
       bubble.innerHTML =
-        `<strong>Why your choice was wrong:</strong><p>${escapeHtml(
-          s.user_choice_summary || "N/A"
+        `<strong>Question context:</strong><p>${escapeHtml(
+          ctxText || "Context unavailable."
+        )}</p>` +
+        `<strong>Question asks:</strong><p>${escapeHtml(
+          askText || "Could not detect the specific ask."
+        )}</p>` +
+        `<strong>${escapeHtml(userHeading)}</strong><p>${escapeHtml(
+          userChoiceText
         )}</p>` +
         `<strong>Why correct is right:</strong><p>${escapeHtml(
           s.correct_choice_summary || "N/A"
