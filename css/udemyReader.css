@@ -648,8 +648,11 @@
 }
 
 .cz-explain-bubble-inline strong {
-  display: block;
-  margin-bottom: 4px;
+  display: inline;
+}
+
+.cz-explain-line > strong:first-child {
+  margin-right: 4px;
 }
 
 .cz-explain-bubble-inline ul {

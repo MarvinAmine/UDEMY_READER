@@ -233,6 +233,18 @@
         .replace(/>/g, "&gt;");
     }
 
+    function renderMdBold(str) {
+      // Escape untrusted text, then re-enable markdown-style **bold**.
+      const safe = escapeHtml(str);
+      return safe.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
+    }
+
+    function renderLine(label, text) {
+      const lbl = escapeHtml(label);
+      const val = renderMdBold(text);
+      return `<div class="cz-explain-line"><strong>${lbl}</strong>${val}</div>`;
+    }
+
     const pill = document.createElement("button");
     pill.type = "button";
     pill.className = "cz-explain-pill";
@@ -267,22 +279,14 @@
         : "Why your choice was wrong:";
 
       bubble.innerHTML =
-        `<strong>Question context:</strong><p>${escapeHtml(
-          ctxText || "Context unavailable."
-        )}</p>` +
-        `<strong>Question asks:</strong><p>${escapeHtml(
-          askText || "Could not detect the specific ask."
-        )}</p>` +
-        `<strong>${escapeHtml(userHeading)}</strong><p>${escapeHtml(
-          userChoiceText
-        )}</p>` +
-        `<strong>Why correct is right:</strong><p>${escapeHtml(
-          s.correct_choice_summary || "N/A"
-        )}</p>` +
+        renderLine("Question context:", ctxText || "Context unavailable.") +
+        renderLine("Question asks:", askText || "Could not detect the specific ask.") +
+        renderLine(userHeading, userChoiceText) +
+        renderLine("Why correct is right:", s.correct_choice_summary || "N/A") +
         `<strong>How to eliminate:</strong><ul>${clues
-          .map((c) => `<li>${escapeHtml(String(c))}</li>`)
+          .map((c) => `<li>${renderMdBold(String(c))}</li>`)
           .join("")}</ul>` +
-        `<strong>Rule:</strong><p>${escapeHtml(s.sticky_rule || "N/A")}</p>`;
+        renderLine("Rule:", s.sticky_rule || "N/A");
     }
 
     let cachedSummary = null;
