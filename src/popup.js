@@ -245,7 +245,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (isPractice) {
           pageStatusTitle.textContent = "Practice exam detected";
           pageStatusDesc.textContent =
-            "You’re on a Udemy practice exam—start the copilot here.";
+            "You’re on a Udemy practice — happy studying!";
         } else if (isCoursePage) {
           pageStatusTitle.textContent = "Open a practice test";
           pageStatusDesc.textContent =

@@ -1,44 +1,51 @@
 # Udemy AWS Prep Exam Copilot
 
-Chrome extension that helps you read, summarize, and chat through Udemy AWS certification practice exams. It highlights answers, explains the "why," and can read questions aloud.
+Chrome extension to read, summarize, and chat through Udemy AWS practice exams. It highlights answers, explains the “why,” reads questions aloud, and keeps your data local.
 
-## Features
-- Guided setup wizard for API keys and usage
+## At a glance
+- Guided setup wizard for keys and usage
 - LLM insights (chat, summaries, explanations)
-- Optional Google Cloud Text-to-Speech for audio playback
+- Optional Google Cloud Text-to-Speech for audio
 - Keyword highlighting and “Why?” bubbles
-- Weak-topic tracking stored locally
-- Page detector with quick link to AWS practice exams
+- Weak-topic tracking (local only)
+- Page detector with one-click link to AWS practice exams
 
-## Install (unpacked)
-1. Download/clone this repo.
-2. In Chrome, go to `chrome://extensions`.
-3. Toggle **Developer mode** (top right).
-4. Click **Load unpacked** and select this folder.
+## Quick start
+1. **Load unpacked:** `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select this folder.
+2. **Add keys:** In the popup, add your OpenAI-compatible LLM API key (required) and model. Optionally add a Google TTS key.
+3. **Open a quiz:** Visit a Udemy AWS practice exam (`/learn/quiz/.../result` or `/test#...`). The popup status dot turns green when you’re on a valid page.
+4. **Use the tools:** Toggle highlights/“Why?” bubbles, ask for summaries, or trigger read-aloud.
 
-## Configure
-Open the extension popup and:
-1. Add your OpenAI-compatible LLM API key (required) and model name.
-2. (Optional) Add a Google Cloud Text-to-Speech API key for audio.
-3. Use the guided setup to highlight the correct fields and steps.
-
-## Use
-1. Open a Udemy AWS practice exam page (URLs like `.../learn/quiz/.../result` or `.../test#...`).
-2. Reopen the popup if you navigate—status indicator shows if you’re on a valid practice exam.
-3. Toggle highlighting/“Why?” bubbles as needed; weak topics appear after analyses.
-
-## Development
-- Manifest v3; main popup HTML/CSS/JS live in `popup.html`, `css/styles.css`, `src/popup.js`.
-- Content scripts are listed in `manifest.json`; no build step is required for the popup.
-- Keep API keys out of source control.
+## Configure (details)
+- **LLM:** Required. Paste an OpenAI-compatible API key and model name.
+- **TTS (optional):** Add a Google Cloud Text-to-Speech key to enable audio playback.
+- The guided setup in the popup highlights where to click and what to fill.
 
 ## Privacy
-- Data is stored locally in Chrome storage; no extra servers are used by this extension.
-- Your API keys stay in your browser; requests go directly from the browser to the LLM/TTS providers you configure.
-- You are responsible for any data you send to the LLM/TTS APIs—avoid sharing sensitive content.
+- Data lives in Chrome storage; there are no extension-owned servers.
+- Your API keys stay in your browser; requests go directly to the providers you configure.
+- You control the data sent to LLM/TTS APIs—avoid sending sensitive content.
+
+## Development
+- Manifest v3; popup lives in `popup.html`, `css/styles.css`, `src/popup.js`.
+- Content scripts listed in `manifest.json`; no build step required for the popup.
+- Keep secrets out of source control.
 
 ## Contributing
-Issues and PRs are welcome at https://github.com/MarvinAmine/UDEMY_AWS_PREP_EXAM_COPILOT. See `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
+Have feedback, bugs, or ideas for new features? Share them on GitHub—or open a PR—at https://github.com/MarvinAmine/UDEMY_AWS_PREP_EXAM_COPILOT. I review and ship improvements and welcome collaboration. See `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
+
+## Screenshots
+
+### Guided setup and keys
+![Popup showing LLM and Google TTS keys](assets/chrome_extension_popup_set_openAI_and_google_tts_keys.png)
+
+### Highlight, explain, read aloud
+![Trigger highlight/why/read aloud on question text](assets/key_triggers_highlighting_quick_why.png)
+![Read aloud and analyze question](assets/integreted_read_aloud_and_analyze_question.png)
+![Cursor highlight a text section to explain or read aloud](assets/cursor_highlight_a_text_section_to_explain_or_readaloud.png)
+
+### Chat and summarization
+![Summarize the why and chat with the question](assets/summarize_the_why_and_chat_with_the_question.png)
 
 ## License
 MIT License. See `LICENSE`.
