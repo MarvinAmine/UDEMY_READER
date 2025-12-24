@@ -21,17 +21,80 @@
       </div>
     </div>
 
-    <div class="popup-section">
-      <h2 class="popup-section-title">Google TTS</h2>
-      <label class="popup-label" for="googleKey">
-        Google Cloud Text-to-Speech API key
-      </label>
-      <input id="googleKey" type="password" class="popup-input" placeholder="AIza...">
-      <button id="saveKey" class="popup-btn">Save TTS key</button>
-      <div id="saveStatus" class="popup-status"></div>
+    <div class="popup-actions">
+      <button id="startWizard" class="popup-btn popup-btn-ghost">
+        Start guided setup
+      </button>
     </div>
 
-    <div class="popup-section">
+    <div id="setupSection" class="popup-section popup-intro is-hidden">
+      <div class="wizard-head">
+        <div>
+          <h2 class="popup-section-title">Guided setup</h2>
+          <p class="wizard-desc">
+            Follow the steps; we’ll highlight each section until you’re done.
+          </p>
+        </div>
+        <div id="wizardStepCounter" class="wizard-step-pill is-hidden">
+          Step 1 of 3
+        </div>
+      </div>
+
+      <div id="wizardCard" class="wizard-card wizard-dynamic wizard-floating is-hidden">
+        <div id="wizardStepLabel" class="wizard-step-label"></div>
+        <div id="wizardTitle" class="wizard-title"></div>
+        <p id="wizardDesc" class="wizard-desc"></p>
+        <div id="wizardLinks" class="wizard-links"></div>
+        <div class="wizard-actions">
+          <button id="wizardPrimary" class="popup-btn">Next</button>
+          <button id="wizardSecondary" class="popup-btn popup-btn-ghost is-hidden">
+            Skip
+          </button>
+        </div>
+      </div>
+
+      <div id="usageSection" class="wizard-usage-note popup-note">
+        Works on Udemy practice exams only. Example quiz:
+        <a
+          href="https://www.udemy.com/course/practice-exams-aws-certified-solutions-architect-associate/learn/quiz/4726082/result/1704817959?expanded=1704817959#overview"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          AWS SAA practice exam
+        </a>.
+        Browse all AWS practice tests:
+        <a
+          href="https://www.udemy.com/courses/search/?src=ukw&q=AWS+practice+exams&features=has_practice_test"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Udemy AWS practice exams
+        </a>.
+      </div>
+    </div>
+
+    <div class="popup-section practice-status">
+      <div class="status-row">
+        <span id="pageStatusDot" class="status-dot is-off"></span>
+        <div>
+          <div id="pageStatusTitle" class="status-title">Checking current page...</div>
+          <div id="pageStatusDesc" class="status-desc">
+            We’ll detect if you’re on a Udemy AWS practice exam.
+          </div>
+        </div>
+      </div>
+      <div class="practice-actions">
+        <button id="openPracticeBtn" class="popup-btn">
+          Open an AWS practice exam
+        </button>
+      </div>
+      <ul id="practiceGuide" class="practice-guide is-hidden">
+        <li>Choose an AWS practice test between those in the list.</li>
+        <li>Open the practice test by clicking on “Go to course”.</li>
+      </ul>
+    </div>
+
+    <div id="llmSection" class="popup-section">
       <h2 class="popup-section-title">LLM (Exam Copilot)</h2>
       <label class="popup-label" for="llmKey">
         LLM API key (OpenAI compatible)
@@ -48,6 +111,16 @@
       >
       <button id="saveLlm" class="popup-btn">Save LLM config</button>
       <div id="llmSaveStatus" class="popup-status"></div>
+    </div>
+
+    <div id="ttsSection" class="popup-section">
+      <h2 class="popup-section-title">Google TTS (Optional)</h2>
+      <label class="popup-label" for="googleKey">
+        Google Cloud Text-to-Speech API key
+      </label>
+      <input id="googleKey" type="password" class="popup-input" placeholder="AIza...">
+      <button id="saveKey" class="popup-btn">Save TTS key</button>
+      <div id="saveStatus" class="popup-status"></div>
     </div>
 
     <div class="popup-section">
@@ -76,6 +149,23 @@
       <p class="popup-note">
         These tags are inferred from analyzed questions. Higher counts mean you see those topics more often.
       </p>
+    </div>
+
+    <div class="popup-section contribute-section">
+      <h2 class="popup-section-title">Contribute</h2>
+      <p class="popup-note">
+        Want to improve the copilot? Issues and PRs welcome on GitHub.
+      </p>
+      <div class="practice-actions">
+        <a
+          class="popup-btn"
+          href="https://github.com/MarvinAmine/UDEMY_AWS_PREP_EXAM_COPILOT"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open the repo
+        </a>
+      </div>
     </div>
   </div>
   <script src="src/popup.js"></script>

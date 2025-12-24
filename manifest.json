@@ -3,7 +3,7 @@
   "name": "Udemy AWS Prep Exam Copilot — Chat, Summarize, and Read Aloud",
   "version": "0.0.1",
   "description": "Interact with your Udemy AWS Certification prep exams using a copilot. Work smarter — let the copilot read aloud, explain the why, and chat with you.",
-  "permissions": ["scripting", "activeTab", "storage"],
+  "permissions": ["scripting", "activeTab", "storage", "tabs"],
   "host_permissions": [
     "https://www.udemy.com/*",
     "https://texttospeech.googleapis.com/*",
