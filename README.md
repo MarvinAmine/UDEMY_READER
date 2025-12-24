@@ -2,6 +2,12 @@
 
 Chrome extension to read, summarize, and chat through Udemy AWS practice exams. It highlights answers, explains the “why,” reads questions aloud, and keeps your data local.
 
+### Walkthrough (video)
+<video controls>
+  <source src="assets/Screencast from 2025-12-24 18-22-59.webm" type="video/webm">
+  Your browser does not support the video tag.
+</video>
+
 ## At a glance
 - Guided setup wizard for keys and usage
 - LLM insights (chat, summaries, explanations)
