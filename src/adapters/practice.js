@@ -208,7 +208,347 @@
     function renderLine(label, text) {
       const lbl = escapeHtml(label);
       const val = renderMdBold(text);
-      return `<div class="cz-explain-line"><strong>${lbl}</strong>${val}</div>`;
+      const spacer = val ? " " : "";
+      return `<div class="cz-explain-line"><strong>${lbl}</strong>${spacer}${val}</div>`;
+    }
+
+    function shorten(text, max = 140, allowTruncate = true) {
+      const t = String(text || "");
+      if (!allowTruncate) return t;
+      if (t.length <= max) return t;
+      return t.slice(0, max - 1).trimEnd() + "…";
+    }
+
+    const STOP_WORDS = new Set(
+      "the a an and or but for nor with without in on at to of from by as is are was were this that these those you your our their its it's can't couldnt wouldnt shouldn't should have has had do does did be been being if then else when where which what why how who whose whom can could may might must will would should".split(
+        " "
+      )
+    );
+
+    function extractKeyTerms(summary, limit = 8) {
+      const s = summary || {};
+      const textParts = [
+        s.sticky_rule,
+        s.correct_choice_summary,
+        s.user_choice_summary,
+        ...(Array.isArray(s.elimination_clues) ? s.elimination_clues : [])
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const tokens = (textParts.match(/[A-Za-z][A-Za-z0-9-]{2,}/g) || []).map((t) =>
+        t.trim()
+      );
+      const seen = new Set();
+      const freq = [];
+
+      tokens.forEach((tok) => {
+        const lower = tok.toLowerCase();
+        if (STOP_WORDS.has(lower)) return;
+        if (seen.has(lower)) return;
+        seen.add(lower);
+        freq.push(tok);
+      });
+
+      return freq.slice(0, limit);
+    }
+
+    function firstTerm(text) {
+      const tokens = (String(text || "").match(/[A-Za-z][A-Za-z0-9-]{2,}/g) || []).map((t) =>
+        t.trim()
+      );
+      for (const tok of tokens) {
+        if (!STOP_WORDS.has(tok.toLowerCase())) return tok;
+      }
+      return "";
+    }
+
+    function buildSuggestions() {
+      // Fallback, used if AI suggestion generation fails; keep generic but varied.
+      return [
+        "What's the tricky part?",
+        "What's a common mistake here?",
+        "Give me the quick rule of thumb.",
+        "Where do people usually mess this up?",
+        "What's the fastest sanity check?",
+        "What's the gotcha to watch for?"
+      ];
+    }
+
+    function buildSummaryCorpus(summary, questionContext) {
+      const s = summary || {};
+      const parts = [
+        s.sticky_rule,
+        s.correct_choice_summary,
+        s.user_choice_summary,
+        ...(Array.isArray(s.elimination_clues) ? s.elimination_clues : []),
+        (questionContext && questionContext.stemText) || "",
+        JSON.stringify((questionContext && questionContext.choices) || [])
+      ];
+      const raw = parts.filter(Boolean).join(" ");
+      return raw
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function isEcho(candidate, corpus) {
+      if (!candidate) return false;
+      const norm = String(candidate)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!norm) return false;
+      if (norm.length > 6 && corpus.includes(norm)) return true;
+      const words = norm.split(" ").filter((w) => w.length > 3);
+      if (!words.length) return false;
+      const hits = words.filter((w) => corpus.includes(w)).length;
+      return hits / words.length >= 0.6;
+    }
+
+    function requestAiSuggestions(summary, questionContext, onDone) {
+      const s = summary || {};
+      const clues = Array.isArray(s.elimination_clues) ? s.elimination_clues : [];
+      const corpus = buildSummaryCorpus(summary, questionContext);
+      const prompt =
+        "Find 3 very short, human questions about the tricky parts students usually miss. " +
+        "Do NOT copy wording from the summary. Paraphrase and focus on subtle confusions or gotchas.";
+      const context = {
+        rule: s.sticky_rule || "",
+        correct: s.correct_choice_summary || "",
+        wrong: s.user_choice_summary || "",
+        clues,
+        question: (questionContext && questionContext.stemText) || "",
+        choices: (questionContext && questionContext.choices) || []
+      };
+
+      if (!chrome?.runtime?.sendMessage) {
+        onDone(null);
+        return;
+      }
+
+      try {
+        chrome.runtime.sendMessage(
+          {
+            type: "CZ_GENERATE_SUGGESTIONS",
+            prompt,
+            context
+          },
+          (resp) => {
+            if (!resp || !resp.ok || !Array.isArray(resp.suggestions)) {
+              onDone(null);
+              return;
+            }
+            const cleaned = resp.suggestions
+              .filter(Boolean)
+              .map((x) => String(x).trim())
+              .filter(Boolean)
+              .filter((x) => !isEcho(x, corpus))
+              .slice(0, 6);
+            onDone(cleaned.length ? cleaned : null);
+          }
+        );
+      } catch (_) {
+        onDone(null);
+      }
+    }
+
+    function makeBotReply(question, summary) {
+      const s = summary || {};
+      const clues = Array.isArray(s.elimination_clues) ? s.elimination_clues : [];
+      const q = (question || "").toLowerCase();
+
+      const candidates = [
+        ...(clues || []).map((c) => `Pitfall: ${String(c || "")}`),
+        s.sticky_rule ? `Rule: ${s.sticky_rule}` : "",
+        s.correct_choice_summary ? `Why right: ${s.correct_choice_summary}` : "",
+        s.user_choice_summary ? `Why wrong: ${s.user_choice_summary}` : "",
+        "Use the rule, then apply the clues."
+      ]
+        .map((c) => String(c || "").trim())
+        .filter(Boolean);
+
+      const pickClue = () => {
+        if (!candidates.length) return "Focus on the rule, then apply the clues.";
+        const idx =
+          (question || "")
+            .split("")
+            .reduce((a, c) => a + c.charCodeAt(0), 0) % candidates.length;
+        return candidates[idx];
+      };
+
+      const trapHint = pickClue();
+
+      const ruleLine = s.sticky_rule ? `Rule: ${s.sticky_rule}` : "";
+      const clueLine = trapHint ? `Watch out: ${trapHint}` : "";
+      const rightLine = s.correct_choice_summary
+        ? `Why right: ${s.correct_choice_summary}`
+        : "";
+
+      if (/rule|guideline|remember/.test(q)) {
+        return [ruleLine || clueLine, rightLine].filter(Boolean).join(" ");
+      }
+      if (/wrong|eliminate|avoid|trap/.test(q) && pickClue()) {
+        return `${clueLine || trapHint} ${rightLine}`.trim();
+      }
+      if (/right|correct|why/.test(q) && s.correct_choice_summary) {
+        return `Key: ${s.correct_choice_summary}`;
+      }
+      if (/short|summary|takeaway/.test(q)) {
+        return (
+          ruleLine ||
+          rightLine ||
+          clueLine ||
+          "Focus on the rule and clues; avoid options that violate them."
+        );
+      }
+      const core =
+        ruleLine ||
+        rightLine ||
+        clueLine ||
+        "Use the rule, then apply the clues; ignore options that contradict them.";
+      return shorten(core, 200);
+    }
+
+    function requestAiReply(questionText, summary, questionContext, onDone) {
+      const s = summary || {};
+      const prompt =
+        "Answer in up to 3 concise sentences (max ~70 words). If it is a yes/no question, start with Yes or No and then a brief reason. " +
+        "Do NOT copy the summary verbatim. Address the question directly. Use the provided context (rule/correct/wrong/clues/question/choices) only to craft a helpful hint or mini-explanation.";
+      const payload = {
+        type: "CZ_CHAT_REPLY",
+        prompt,
+        question: questionText || "",
+        summary: s,
+        context: questionContext || {}
+      };
+
+      if (!chrome?.runtime?.sendMessage) {
+        onDone(null);
+        return;
+      }
+
+      try {
+        chrome.runtime.sendMessage(payload, (resp) => {
+          if (!resp || !resp.ok || !resp.reply) {
+            onDone(null);
+            return;
+          }
+          const reply = String(resp.reply || "").trim();
+          if (!reply) {
+            onDone(null);
+            return;
+          }
+          onDone(reply);
+        });
+      } catch (_) {
+        onDone(null);
+      }
+    }
+
+    function mountChat(bubble, summary, providedSuggestions, questionContext) {
+      const chat = document.createElement("div");
+      chat.className = "cz-explain-chat";
+      let suggestionsQueue =
+        providedSuggestions && providedSuggestions.length
+          ? [...providedSuggestions]
+          : buildSuggestions();
+
+      const takeFromQueue = () => {
+        while (suggestionsQueue.length) {
+          const cand = suggestionsQueue.shift();
+          if (!cand) continue;
+          return cand;
+        }
+        return null;
+      };
+
+      function takeNextSuggestion(cb) {
+        const local = takeFromQueue();
+        if (local) {
+          cb(local);
+          return;
+        }
+        requestAiSuggestions(summary, questionContext, (aiSuggestions) => {
+          suggestionsQueue =
+            (aiSuggestions && aiSuggestions.length && [...aiSuggestions]) ||
+            buildSuggestions();
+          const fromAi = takeFromQueue();
+          cb(fromAi || null);
+        });
+      }
+
+      const initialButtons = [];
+      for (let i = 0; i < 3; i++) {
+        const sug = takeFromQueue();
+        if (!sug) break;
+        initialButtons.push(sug);
+      }
+      chat.innerHTML =
+        `<div class="cz-explain-chat-header">Chat</div>` +
+        `<div class="cz-explain-chat-suggestions">` +
+        initialButtons
+          .map(
+            (q) =>
+              `<button type="button" class="cz-explain-chat-suggestion" data-question="${escapeHtml(
+                q
+              )}">${escapeHtml(q)}</button>`
+          )
+          .join("") +
+        `</div>` +
+        `<div class="cz-explain-chat-log" aria-live="polite"></div>` +
+        `<form class="cz-explain-chat-form">` +
+        `<input type="text" name="q" placeholder="Ask in one line" aria-label="Ask a quick question" maxlength="200" />` +
+        `<button type="submit">Send</button>` +
+        `</form>`;
+
+      const log = chat.querySelector(".cz-explain-chat-log");
+      const form = chat.querySelector(".cz-explain-chat-form");
+      const input = chat.querySelector('input[name="q"]');
+
+      function addMsg(role, text) {
+        const row = document.createElement("div");
+        row.className = `cz-explain-chat-msg cz-explain-chat-${role}`;
+        row.innerHTML = `<span>${renderMdBold(shorten(text, 420, false))}</span>`;
+        log.appendChild(row);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function handleQuestion(qText) {
+        const qClean = (qText || "").trim();
+        if (!qClean) return;
+        addMsg("user", qClean);
+        requestAiReply(qClean, summary, questionContext, (aiReply) => {
+          const reply = aiReply || makeBotReply(qClean, summary);
+          addMsg("bot", reply);
+        });
+      }
+
+      form.addEventListener("submit", (evt) => {
+        evt.preventDefault();
+        const val = input.value;
+        input.value = "";
+        handleQuestion(val);
+      });
+
+      chat.querySelectorAll(".cz-explain-chat-suggestion").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const q = btn.dataset.question || "";
+          handleQuestion(q);
+          takeNextSuggestion((next) => {
+            if (next) {
+              btn.dataset.question = next;
+              btn.textContent = next;
+            } else {
+              btn.remove();
+            }
+          });
+        });
+      });
+
+      bubble.appendChild(chat);
     }
 
     const pill = document.createElement("button");
@@ -224,13 +564,25 @@
       const clues = Array.isArray(s.elimination_clues)
         ? s.elimination_clues
         : [];
+      let userWrong = s.user_choice_summary || "";
+      if (/no answer was selected/i.test(userWrong)) {
+        userWrong = "";
+      }
+      if (!userWrong) {
+        userWrong = "We couldn't capture your selection.";
+      }
+
       bubble.innerHTML =
-        renderLine("Why your choice was wrong:", s.user_choice_summary || "N/A") +
+        renderLine("Why your choice was wrong:", userWrong) +
         renderLine("Why correct is right:", s.correct_choice_summary || "N/A") +
         `<strong>How to eliminate:</strong><ul>${clues
           .map((c) => `<li>${renderMdBold(String(c))}</li>`)
           .join("")}</ul>` +
         renderLine("Rule:", s.sticky_rule || "N/A");
+
+      requestAiSuggestions(s, context, (aiSuggestions) => {
+        mountChat(bubble, s, aiSuggestions || null, context);
+      });
     }
 
     let cachedSummary = null;
@@ -624,10 +976,11 @@
     }
 
     chrome.storage.local.get(
-      ["czQuestionAttempts", "czQuestionStats"],
+      ["czQuestionAttempts", "czQuestionStats", "czRevisionQueue"],
       (res) => {
         const questionAttempts = res.czQuestionAttempts || {};
         const questionStats = res.czQuestionStats || {};
+        let revisionQueue = res.czRevisionQueue || {};
 
         questionAttempts[attempt.attemptId] = attempt;
 
@@ -643,10 +996,25 @@
           }
         }
 
+        const rqHelper = window.czCore && window.czCore.revisionQueue;
+        if (
+          rqHelper &&
+          typeof rqHelper.applyAttempt === "function" &&
+          rqHelper.shouldQueueAttempt &&
+          rqHelper.shouldQueueAttempt(attempt)
+        ) {
+          try {
+            revisionQueue = rqHelper.applyAttempt(revisionQueue, attempt);
+          } catch (e) {
+            log("revisionQueue.applyAttempt error", e);
+          }
+        }
+
         chrome.storage.local.set(
           {
             czQuestionAttempts: questionAttempts,
-            czQuestionStats: updatedStats
+            czQuestionStats: updatedStats,
+            czRevisionQueue: revisionQueue
           },
           () => {
             log(

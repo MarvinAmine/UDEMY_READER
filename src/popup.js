@@ -42,7 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
     (res) => {
       googleKeyInput.value = res.czGoogleTtsKey || "";
       llmKeyInput.value = res.czLlmApiKey || "";
-      llmModelInput.value = res.czLlmModel || "gpt-4o-mini";
+      llmModelInput.value = res.czLlmModel || "gpt-5.1";
       if (highlightToggle) {
         highlightToggle.checked =
           res.czHighlightEnabled === undefined
@@ -66,7 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   saveLlmBtn.addEventListener("click", () => {
     const key = llmKeyInput.value.trim();
-    const model = llmModelInput.value.trim() || "gpt-4o-mini";
+    const model = llmModelInput.value.trim() || "gpt-5.1";
     chrome.storage.sync.set(
       { czLlmApiKey: key, czLlmModel: model },
       () => {

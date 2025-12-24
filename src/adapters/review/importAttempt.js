@@ -336,18 +336,20 @@
       return;
     }
 
-    chrome.storage.local.get(
-      [
-        "czExamAttempts",
-        "czQuestionBank",
-        "czQuestionAttempts",
-        "czQuestionStats"
-      ],
-      (res) => {
-        const examAttempts = res.czExamAttempts || {};
-        const questionBank = res.czQuestionBank || {};
-        const questionAttempts = res.czQuestionAttempts || {};
-        const questionStats = res.czQuestionStats || {};
+  chrome.storage.local.get(
+    [
+      "czExamAttempts",
+      "czQuestionBank",
+      "czQuestionAttempts",
+      "czQuestionStats",
+      "czRevisionQueue"
+    ],
+    (res) => {
+      const examAttempts = res.czExamAttempts || {};
+      const questionBank = res.czQuestionBank || {};
+      const questionAttempts = res.czQuestionAttempts || {};
+      const questionStats = res.czQuestionStats || {};
+      let revisionQueue = res.czRevisionQueue || {};
 
         if (examAttempts[examAttemptMeta.examAttemptKey]) {
           log(
@@ -409,6 +411,19 @@
           questionAttempts[att.attemptId] = att;
         });
 
+        const rqHelper = window.czCore && window.czCore.revisionQueue;
+        if (rqHelper && typeof rqHelper.applyAttempt === "function") {
+          attempts.forEach((att) => {
+            if (rqHelper.shouldQueueAttempt && rqHelper.shouldQueueAttempt(att)) {
+              try {
+                revisionQueue = rqHelper.applyAttempt(revisionQueue, att);
+              } catch (e) {
+                log("ReviewMode", "revisionQueue.applyAttempt error", e);
+              }
+            }
+          });
+        }
+
         // UC1-C: update per-question ground-truth stats from the new attempts
         const qsHelper =
           (window.czCore && window.czCore.questionStats) || null;
@@ -422,7 +437,8 @@
             czExamAttempts: examAttempts,
             czQuestionBank: questionBank,
             czQuestionAttempts: questionAttempts,
-            czQuestionStats: updatedStats
+            czQuestionStats: updatedStats,
+            czRevisionQueue: revisionQueue
           },
           () => {
             log(

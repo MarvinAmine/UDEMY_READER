@@ -23,6 +23,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleCompressExplanation(msg, sendResponse);
     return true;
   }
+
+  if (msg.type === "CZ_GENERATE_SUGGESTIONS") {
+    handleGenerateSuggestions(msg, sendResponse);
+    return true;
+  }
+
+  if (msg.type === "CZ_CHAT_REPLY") {
+    handleChatReply(msg, sendResponse);
+    return true;
+  }
 });
 
 async function handleAnalyzeQuestion(msg, sendResponse) {
@@ -81,7 +91,7 @@ async function handleAnalyzeQuestion(msg, sendResponse) {
     });
 
     const apiKey = (cfg.czLlmApiKey || "").trim();
-    const model = (cfg.czLlmModel || "gpt-4o-mini").trim();
+    const model = (cfg.czLlmModel || "gpt-5.1").trim();
 
     if (!apiKey) {
       sendResponse({ ok: false, error: "No LLM API key configured." });
@@ -270,7 +280,7 @@ async function handleExplainHighlight(msg, sendResponse) {
     });
 
     const apiKey = (cfg.czLlmApiKey || "").trim();
-    const model = (cfg.czLlmModel || "gpt-4o-mini").trim();
+    const model = (cfg.czLlmModel || "gpt-5.1").trim();
 
     if (!apiKey) {
       // Still log an event stub so user sees something during dev.
@@ -414,7 +424,7 @@ async function handleCompressExplanation(msg, sendResponse) {
       chrome.storage.sync.get(["czLlmApiKey", "czLlmModel"], resolve);
     });
     const apiKey = (cfg.czLlmApiKey || "").trim();
-    const model = (cfg.czLlmModel || "gpt-4o-mini").trim();
+    const model = (cfg.czLlmModel || "gpt-5.1").trim();
     if (!apiKey) {
       sendResponse({ ok: false, error: "No LLM API key configured." });
       return;
@@ -510,6 +520,211 @@ async function handleCompressExplanation(msg, sendResponse) {
     }
 
     sendResponse({ ok: true, summary: parsed });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+async function handleGenerateSuggestions(msg, sendResponse) {
+  try {
+    const cfg = await new Promise((resolve) => {
+      chrome.storage.sync.get(["czLlmApiKey", "czLlmModel"], resolve);
+    });
+    const apiKey = (cfg.czLlmApiKey || "").trim();
+    const model = (cfg.czLlmModel || "gpt-5.1").trim();
+
+    if (!apiKey) {
+      sendResponse({ ok: false, error: "No LLM API key configured." });
+      return;
+    }
+
+    const context = msg.context || {};
+    const systemPrompt =
+      (msg.prompt || "") +
+      ' Return ONLY JSON like {"suggestions":["q1","q2","q3"]}. Keep each under 12 words and avoid repeating the context words verbatim.';
+
+    const choices = Array.isArray(context.choices)
+      ? context.choices
+          .map((c, idx) => {
+            const label =
+              (c && c.label) ||
+              String.fromCharCode("A".charCodeAt(0) + idx);
+            const text = (c && c.text) || c || "";
+            return `${label}. ${text}`;
+          })
+          .join("\n")
+      : "";
+
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content:
+            "Context to base suggestions on:\n" +
+            `Rule: ${context.rule || "(none)"}\n` +
+            `Correct summary: ${context.correct || "(none)"}\n` +
+            `Why wrong summary: ${context.wrong || "(none)"}\n` +
+            `Clues: ${(context.clues || []).join(" | ")}\n` +
+            `Question stem: ${context.question || "(none)"}\n` +
+            `Choices:\n${choices}\n` +
+            "Return only JSON."
+        }
+      ],
+      temperature: 0.35,
+      response_format: { type: "json_object" }
+    };
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      sendResponse({
+        ok: false,
+        error: "HTTP " + resp.status + " " + resp.statusText + " – " + txt
+      });
+      return;
+    }
+
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content || "{}";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      sendResponse({
+        ok: false,
+        error: "LLM did not return valid JSON.",
+        raw: content
+      });
+      return;
+    }
+
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions
+          .map((x) => String(x || "").trim())
+          .filter(Boolean)
+      : [];
+
+    if (!suggestions.length) {
+      sendResponse({ ok: false, error: "No suggestions returned." });
+      return;
+    }
+
+    sendResponse({ ok: true, suggestions });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+async function handleChatReply(msg, sendResponse) {
+  try {
+    const cfg = await new Promise((resolve) => {
+      chrome.storage.sync.get(["czLlmApiKey", "czLlmModel"], resolve);
+    });
+    const apiKey = (cfg.czLlmApiKey || "").trim();
+    const model = (cfg.czLlmModel || "gpt-5.1").trim();
+
+    if (!apiKey) {
+      sendResponse({ ok: false, error: "No LLM API key configured." });
+      return;
+    }
+
+    const summary = msg.summary || {};
+    const context = msg.context || {};
+    const choices = Array.isArray(context.choices)
+      ? context.choices
+          .map((c, idx) => {
+            const label =
+              (c && c.label) ||
+              String.fromCharCode("A".charCodeAt(0) + idx);
+            const text = (c && c.text) || c || "";
+            return `${label}. ${text}`;
+          })
+          .join("\n")
+      : "";
+
+    const systemPrompt =
+      (msg.prompt || "") +
+      ' Reply as JSON: {"reply":"a short answer"} only. Give a direct, exam-focused hint or mini-explanation in 1–3 sentences; keep under ~70 words and avoid fluff.';
+
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content:
+            "User question:\n" +
+            (msg.question || "") +
+            "\n\nSummaries to ground your reply:\n" +
+            `Rule: ${summary.sticky_rule || "(none)"}\n` +
+            `Correct: ${summary.correct_choice_summary || "(none)"}\n` +
+            `Why wrong: ${summary.user_choice_summary || "(none)"}\n` +
+            `Clues: ${(summary.elimination_clues || []).join(" | ")}\n` +
+            `Question stem: ${(context && context.stemText) || "(none)"}\n` +
+            `Choices:\n${choices}\n` +
+            "Respond with JSON only."
+        }
+      ],
+      temperature: 0.35,
+      response_format: { type: "json_object" }
+    };
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      sendResponse({
+        ok: false,
+        error: "HTTP " + resp.status + " " + resp.statusText + " – " + txt
+      });
+      return;
+    }
+
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content || "{}";
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      sendResponse({
+        ok: false,
+        error: "LLM did not return valid JSON.",
+        raw: content
+      });
+      return;
+    }
+
+    const reply = parsed && parsed.reply ? String(parsed.reply).trim() : "";
+    if (!reply) {
+      sendResponse({ ok: false, error: "Empty reply." });
+      return;
+    }
+
+    sendResponse({ ok: true, reply });
   } catch (err) {
     sendResponse({
       ok: false,
