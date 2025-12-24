@@ -32,6 +32,11 @@ Open the extension popup and:
 - Content scripts are listed in `manifest.json`; no build step is required for the popup.
 - Keep API keys out of source control.
 
+## Privacy
+- Data is stored locally in Chrome storage; no extra servers are used by this extension.
+- Your API keys stay in your browser; requests go directly from the browser to the LLM/TTS providers you configure.
+- You are responsible for any data you send to the LLM/TTS APIs—avoid sharing sensitive content.
+
 ## Contributing
 Issues and PRs are welcome at https://github.com/MarvinAmine/UDEMY_AWS_PREP_EXAM_COPILOT. See `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
 
