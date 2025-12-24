@@ -1,31 +1,49 @@
 /* css/styles.css – popup styling */
+:root {
+  --accent: #a435f0;
+  --bg: #f5f7fb;
+  --panel: #ffffff;
+  --ink: #1f2430;
+  --muted: #555b6b;
+  --border: rgba(31, 36, 48, 0.08);
+}
 
 body {
   margin: 0;
-  padding: 12px;
-  font-family: Arial, sans-serif;
-  background-color: #f9fafb;
-  color: #111827;
-  width: 340px;
+  padding: 14px;
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at 20% 20%, rgba(164, 53, 240, 0.14), transparent 32%),
+    radial-gradient(circle at 80% 0%, rgba(164, 53, 240, 0.12), transparent 38%),
+    var(--bg);
+  color: var(--ink);
+  width: 360px;
 }
 
 #popupRoot {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background: linear-gradient(145deg, #ffffff, #f8f9ff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow:
+    0 18px 35px rgba(0, 0, 0, 0.08),
+    0 6px 14px rgba(164, 53, 240, 0.14);
 }
 
 .popup-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .popup-logo {
-  width: 44px;
-  height: 44px;
+  width: 70px;
+  height: 70px;
   object-fit: contain;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.14));
+  border-radius: 10px;
 }
 
 .popup-heading {
@@ -35,14 +53,16 @@ body {
 }
 
 .popup-title {
-  font-size: 18px;
+  font-size: 16px;
   margin: 0;
+  letter-spacing: -0.2px;
 }
 
 .popup-subtitle {
   margin: 0;
   font-size: 13px;
-  color: #374151;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .popup-label {
@@ -50,6 +70,7 @@ body {
   font-size: 12px;
   margin-top: 6px;
   margin-bottom: 2px;
+  color: var(--muted);
 }
 
 .popup-input {
@@ -57,40 +78,56 @@ body {
   box-sizing: border-box;
   padding: 4px 6px;
   font-size: 12px;
-  border-radius: 4px;
-  border: 1px solid #d1d5db;
-  margin-bottom: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fbfbff;
+  margin-bottom: 6px;
+  color: var(--ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.popup-input:focus {
+  outline: none;
+  border-color: rgba(164, 53, 240, 0.6);
+  box-shadow: 0 0 0 3px rgba(164, 53, 240, 0.12);
 }
 
 .popup-btn {
   padding: 4px 8px;
   font-size: 12px;
-  border-radius: 4px;
-  border: 1px solid #2563eb;
-  background-color: #3b82f6;
+  border-radius: 10px;
+  border: 1px solid rgba(164, 53, 240, 0.7);
+  background: linear-gradient(135deg, #b85bff, var(--accent));
   color: #ffffff;
   cursor: pointer;
   margin-bottom: 4px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  box-shadow: 0 10px 18px rgba(164, 53, 240, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
 }
 
 .popup-btn:hover {
-  background-color: #2563eb;
+  filter: brightness(1.05);
 }
 
 .popup-status {
   font-size: 11px;
-  color: #059669;
+  color: #079669;
 }
 
 .popup-section {
-  border-top: 1px solid #e5e7eb;
-  padding-top: 6px;
-  margin-top: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .popup-section-title {
   font-size: 14px;
   margin: 0 0 4px 0;
+  color: var(--ink);
 }
 
 .popup-topics-list {
@@ -101,16 +138,56 @@ body {
 
 .popup-topics-list li {
   margin-bottom: 2px;
+  color: var(--ink);
 }
 
 .popup-topics-empty {
   list-style: none;
   padding-left: 0;
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .popup-note {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--muted);
   margin: 4px 0 0 0;
+}
+
+.popup-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.popup-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(31, 36, 48, 0.25);
+  border-radius: 6px;
+  position: relative;
+  background: #f7f7fb;
+  transition: all 0.15s ease;
+  outline: none;
+}
+
+.popup-checkbox:checked {
+  border-color: rgba(164, 53, 240, 0.8);
+  background: linear-gradient(135deg, #b85bff, var(--accent));
+  box-shadow: 0 6px 12px rgba(164, 53, 240, 0.25);
+}
+
+.popup-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 4px;
+  height: 9px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
