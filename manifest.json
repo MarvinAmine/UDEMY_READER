@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Udemy AWS Quiz Reader & Exam Copilot",
-  "version": "0.4.0",
-  "description": "Inline reader and AI copilot for Udemy AWS certification questions, answers, and explanations.",
+  "name": "Udemy AWS Prep Exam Copilot — Chat, Summarize, and Read Aloud",
+  "version": "0.0.1",
+  "description": "Interact with your Udemy AWS Certification prep exams using a copilot. Work smarter — let the copilot read aloud, explain the why, and chat with you.",
   "permissions": ["scripting", "activeTab", "storage"],
   "host_permissions": [
     "https://www.udemy.com/*",
@@ -51,6 +51,12 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": "udemy_ai_summary_logo.png"
+  },
+  "icons": {
+    "16": "udemy_ai_summary_logo.png",
+    "48": "udemy_ai_summary_logo.png",
+    "128": "udemy_ai_summary_logo.png"
   }
 }

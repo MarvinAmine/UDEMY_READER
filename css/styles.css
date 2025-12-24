@@ -15,13 +15,32 @@ body {
   gap: 12px;
 }
 
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.popup-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.14));
+}
+
+.popup-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .popup-title {
   font-size: 18px;
-  margin: 0 0 4px 0;
+  margin: 0;
 }
 
 .popup-subtitle {
-  margin: 0 0 4px 0;
+  margin: 0;
   font-size: 13px;
   color: #374151;
 }
