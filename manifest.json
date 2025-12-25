@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Udemy AWS Prep Exam Copilot — Chat, Summarize, and Read Aloud",
+  "name": "Exam Copilot — AI Assistant for AWS Practice Exams on Udemy",
   "version": "0.0.1",
-  "description": "Interact with your Udemy AWS Certification prep exams using a copilot. The copilot read aloud, explain the why, and chat with you.",
+  "description": "Study AWS practice exams on Udemy with an AI copilot that reads aloud, explains the why, and lets you chat.",
   "permissions": ["scripting", "activeTab", "storage", "tabs"],
   "host_permissions": [
     "https://www.udemy.com/*",
