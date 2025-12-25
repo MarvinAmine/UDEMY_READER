@@ -1,6 +1,6 @@
 # Privacy Policy — Udemy AWS Prep Exam Copilot
 
-_Last updated: 2024-12-24_
+_Last updated: 2025-12-24
 
 ## What this extension does
 - Runs on Udemy practice exam pages to highlight questions/answers, show “why” explanations, summarize content, and optionally read text aloud.
