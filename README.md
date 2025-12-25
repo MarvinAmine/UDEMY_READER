@@ -5,6 +5,8 @@ Chrome extension to read, summarize, and chat through Udemy AWS practice exams. 
 ### Walkthrough (video)
 ![Walkthrough GIF](assets/Udemy_AWS_Prep_Exam_Copilot.gif)
 
+![Udemy AWS Prep Exam Copilot hero](assets/chrome_extension_listing/chrome_extension_popup_set_openAI_and_google_tts_keys.png)
+
 ## At a glance
 - Guided setup wizard for keys and usage
 - LLM insights (chat, summaries, explanations)
@@ -40,15 +42,15 @@ Have feedback, bugs, or ideas for new features? Share them on GitHub—or open a
 ## Screenshots
 
 ### Guided setup and keys
-![Popup showing LLM and Google TTS keys](assets/chrome_extension_popup_set_openAI_and_google_tts_keys.png)
+![Popup showing LLM and Google TTS keys](assets/chrome_extension_listing/chrome_extension_popup_set_openAI_and_google_tts_keys.png)
 
 ### Highlight, explain, read aloud
-![Trigger highlight/why/read aloud on question text](assets/key_triggers_highlighting_quick_why.png)
-![Read aloud and analyze question](assets/integreted_read_aloud_and_analyze_question.png)
-![Cursor highlight a text section to explain or read aloud](assets/cursor_highlight_a_text_section_to_explain_or_readaloud.png)
+![Trigger highlight/why/read aloud on question text](assets/chrome_extension_listing/key_triggers_highlighting_quick_why.png)
+![Read aloud and analyze question](assets/chrome_extension_listing/integreted_read_aloud_and_analyze_question.png)
+![Cursor highlight a text section to explain or read aloud](assets/chrome_extension_listing/cursor_highlight_a_text_section_to_explain_or_readaloud.png)
 
 ### Chat and summarization
-![Summarize the why and chat with the question](assets/summarize_the_why_and_chat_with_the_question.png)
+![Summarize the why and chat with the question](assets/chrome_extension_listing/summarize_the_why_and_chat_with_the_question.png)
 
 ## License
 MIT License. See `LICENSE`.
