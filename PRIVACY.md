@@ -30,3 +30,6 @@ _Last updated: 2025-12-24
 
 ## Contact
 - For questions or issues, open an issue on GitHub: https://github.com/MarvinAmine/UDEMY_AWS_PREP_EXAM_COPILOT
+
+## Disclaimer
+This is an independent tool and is not affiliated with or endorsed by Udemy or AWS.

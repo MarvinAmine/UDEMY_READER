@@ -54,3 +54,6 @@ Have feedback, bugs, or ideas for new features? Share them on GitHub—or open a
 
 ## License
 MIT License. See `LICENSE`.
+
+## Disclaimer
+This is an independent tool and is not affiliated with or endorsed by Udemy or AWS. Use it at your own discretion; avoid sending sensitive data to LLM/TTS providers.
