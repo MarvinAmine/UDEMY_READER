@@ -3,7 +3,7 @@
   "name": "Exam Copilot — AI Assistant for AWS Practice Exams on Udemy",
   "version": "0.0.1",
   "description": "Study AWS practice exams on Udemy with an AI copilot that reads aloud, explains the why, and lets you chat.",
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://www.udemy.com/*",
     "https://texttospeech.googleapis.com/*",
