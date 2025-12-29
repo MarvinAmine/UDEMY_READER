@@ -22,7 +22,6 @@ _Last updated: 2025-12-24
 ## Permissions
 - `activeTab`, `tabs`, and host permission for `https://www.udemy.com/*` are used to detect and operate on Udemy practice exam pages.
 - `storage` is used to persist your settings and local weak-topic stats.
-- `scripting` is used to inject the UI and highlights on the current Udemy page.
 
 ## Your choices
 - You can clear keys and settings anytime via the popup.
